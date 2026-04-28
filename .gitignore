@@ -1,0 +1,7 @@
+.idea/
+.DS_Store
+coverage.out
+*.test
+*.out
+/bin/
+/dist/
