@@ -25,10 +25,9 @@ Keep packages small and purpose-driven.
 
 Use packages like:
 
+- `searchplugin/` for OpenAPI-driven search plugin client and registry workflows
 - `tickets/` for ticket parsing, ticket creation helpers, and ticket-related shared policy
-- `metadata/` for reusable AVU and metadata workflows
-- `pathutil/` for logical path handling and normalization helpers
-- `search/` for reusable search and discovery helpers
+- `irodsuri/` for iRODS URI handling helpers
 - `transfer/` for higher-level transfer orchestration helpers
 
 Do not turn this repository into a single generic helpers package.

@@ -1,0 +1,9 @@
+plugins:
+  - name: "nih-grid-search"
+    uri: "http://localhost:8082/v1"
+    auth_type: "bearer_passthrough"
+    enabled: true
+  - name: "legacy-grid-search"
+    uri: "http://localhost:8083/v1"
+    auth_type: "basic_passthrough"
+    enabled: false

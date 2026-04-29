@@ -1,8 +1,6 @@
 module github.com/michael-conway/go-irodsclient-extensions
 
-go 1.22
-
-toolchain go1.22.10
+go 1.24.9
 
 require (
 	github.com/cyverse/go-irodsclient v0.0.0
@@ -19,7 +17,7 @@ require (
 	github.com/hashicorp/go-rootcerts v1.0.2 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	golang.org/x/sys v0.28.0 // indirect
+	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	gopkg.in/yaml.v3 v3.0.1
 )
