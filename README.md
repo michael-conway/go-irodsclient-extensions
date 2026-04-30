@@ -17,11 +17,10 @@ This repository is for extensions such as:
 
 This repository is not intended to duplicate core transport, connection, or low-level filesystem behavior already provided by `go-irodsclient`.
 
-## Initial layout
+## Current layout
 
-- `metadata/`: helpers for common metadata and AVU workflows
-- `pathutil/`: path normalization and iRODS path utility helpers
-- `search/`: shared search and discovery helpers
+- `irodsuri/`: iRODS URI parsing and related helpers
+- `searchplugin/`: shared client and registry support for OpenAPI-based search plugins
 - `tickets/`: ticket creation, validation, and lifecycle helpers
 - `transfer/`: higher-level transfer workflow helpers
 - `internal/testutil/`: shared test helpers for this repository
