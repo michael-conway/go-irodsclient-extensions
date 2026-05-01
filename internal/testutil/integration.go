@@ -24,7 +24,7 @@ func RequireIntegrationConfig(t testing.TB) *ExtensionsTestConfig {
 
 	cfg := OptionalIntegrationConfig(t)
 	if cfg == nil {
-		t.Fatalf("integration tests require %s to point at the shared integration config file", ExtensionsTestConfigFileEnvVar)
+		t.Fatalf("integration tests require %s to point at the shared integration config file", ExtensionsIntegrationConfigFileEnvVar)
 	}
 
 	return cfg
@@ -48,7 +48,7 @@ func NewIntegrationAdminFilesystem(t testing.TB) *irodsfs.FileSystem {
 	cfg := RequireIntegrationConfig(t)
 	requireNonEmptyIntegrationValue(t, "IrodsHost", cfg.IrodsHost)
 	if cfg.IrodsPort <= 0 {
-		t.Fatalf("integration tests require IrodsPort in %s", ExtensionsTestConfigFileEnvVar)
+		t.Fatalf("integration tests require IrodsPort in %s", ExtensionsIntegrationConfigFileEnvVar)
 	}
 	requireNonEmptyIntegrationValue(t, "IrodsZone", cfg.IrodsZone)
 	requireNonEmptyIntegrationValue(t, "IrodsAdminUser", cfg.IrodsAdminUser)
@@ -82,7 +82,7 @@ func NewIntegrationPrimaryTestFilesystem(t testing.TB) *irodsfs.FileSystem {
 	cfg := RequireIntegrationConfig(t)
 	requireNonEmptyIntegrationValue(t, "IrodsHost", cfg.IrodsHost)
 	if cfg.IrodsPort <= 0 {
-		t.Fatalf("integration tests require IrodsPort in %s", ExtensionsTestConfigFileEnvVar)
+		t.Fatalf("integration tests require IrodsPort in %s", ExtensionsIntegrationConfigFileEnvVar)
 	}
 	requireNonEmptyIntegrationValue(t, "IrodsZone", cfg.IrodsZone)
 	requireNonEmptyIntegrationValue(t, "IrodsAuthScheme", cfg.IrodsAuthScheme)
@@ -141,7 +141,7 @@ func IntegrationSecondaryTestPassword(t testing.TB) string {
 }
 
 func loadIntegrationConfig() {
-	configFile := strings.TrimSpace(os.Getenv(ExtensionsTestConfigFileEnvVar))
+	configFile := strings.TrimSpace(os.Getenv(ExtensionsIntegrationConfigFileEnvVar))
 	if configFile == "" {
 		return
 	}
@@ -154,7 +154,7 @@ func loadIntegrationConfig() {
 
 	cfg, err := ReadExtensionsTestConfig(resolvedPath)
 	if err != nil {
-		integrationConfigErr = fmt.Errorf("read integration config from %s=%q: %w", ExtensionsTestConfigFileEnvVar, resolvedPath, err)
+		integrationConfigErr = fmt.Errorf("read integration config from %s=%q: %w", ExtensionsIntegrationConfigFileEnvVar, resolvedPath, err)
 		return
 	}
 
@@ -182,7 +182,7 @@ func ResolveIntegrationConfigPath(configFile string) (string, error) {
 func IntegrationRepoRoot() (string, error) {
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
-		return "", fmt.Errorf("resolve relative %s path: runtime caller unavailable", ExtensionsTestConfigFileEnvVar)
+		return "", fmt.Errorf("resolve relative %s path: runtime caller unavailable", ExtensionsIntegrationConfigFileEnvVar)
 	}
 
 	testutilDir := filepath.Dir(filename)
@@ -194,6 +194,6 @@ func requireNonEmptyIntegrationValue(t testing.TB, field string, value string) {
 	t.Helper()
 
 	if strings.TrimSpace(value) == "" {
-		t.Fatalf("integration tests require %s in %s", field, ExtensionsTestConfigFileEnvVar)
+		t.Fatalf("integration tests require %s in %s", field, ExtensionsIntegrationConfigFileEnvVar)
 	}
 }

@@ -21,8 +21,10 @@ This repository is not intended to duplicate core transport, connection, or low-
 
 - `irodsuri/`: iRODS URI parsing and related helpers
 - `searchplugin/`: shared client and registry support for OpenAPI-based search plugins
+- `userpersist/`: conventions and helpers for `~/.irodsext` user persistence collections
+- `filecart/`: AVU-backed file cart lifecycle and entry management under `~/.irodsext/filecarts`
 - `tickets/`: ticket creation, validation, and lifecycle helpers
-- `transfer/`: higher-level transfer workflow helpers
+- `integration/`: docker-test-framework integration tests (build-tagged)
 - `internal/testutil/`: shared test helpers for this repository
 - `testdata/`: fixtures used by tests
 

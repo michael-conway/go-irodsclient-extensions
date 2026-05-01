@@ -53,7 +53,7 @@ Keep integration support reusable across packages under `internal/testutil/`.
 
 Current shared integration config env var:
 
-- `GO_IRODSCLIENT_EXTENSIONS_TEST_CONFIG_FILE`
+- `GOEXT_TEST_CONFIG_ENV`
 
 Use that env var as the main source of live-test configuration.
 
@@ -67,9 +67,7 @@ IrodsPort: 1247
 IrodsZone: tempZone
 IrodsAdminUser: rods
 IrodsAdminPasswordFile: irods-admin-password.txt
-IrodsAdminLoginType: password
 IrodsAuthScheme: native
-IrodsNegotiationPolicy: native
 IrodsDefaultResource:
 IrodsPrimaryTestUser: test1
 IrodsPrimaryTestPassword: test
@@ -79,12 +77,12 @@ IrodsSecondaryTestPassword: test2
 
 The checked-in sample lives at:
 
-- `internal/testutil/extensions-test-config.yaml`
+- `integration/extensions-integration.sample.yaml`
 
 Typical shell setup:
 
 ```bash
-export GO_IRODSCLIENT_EXTENSIONS_TEST_CONFIG_FILE=internal/testutil/extensions-test-config.yaml
+export GOEXT_TEST_CONFIG_ENV=integration/extensions-integration.sample.yaml
 ```
 
 Tests should default to the configured primary and secondary test users rather than hardcoding local account names.
