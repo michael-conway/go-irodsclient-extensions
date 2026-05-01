@@ -6,21 +6,24 @@ proper `icommand` or `gocmd` formulation for common operations.
 Current focus:
 
 - `iput`/`iget` or `gocmd put`/`gocmd get`
+- storage commands (`iphymv`/`irep` and `gocmd phymove`/`gocmd replicate`)
 
 This package provides methods that:
 
-- accept a command (`put`, `get`) and relevant paths
-- return a structure containing both command variants:
+- build a cue list (`[]CueEntry`) for collection and data object contexts
+- return command entries containing:
+  - `operation`
   - `gocmd`
   - `icommand`
 
 Behavior details:
 
-- `put` accepts the current absolute iRODS collection path and a local file
-  path placeholder, then returns a command string showing how to upload into
-  that collection
-- `get` accepts the current absolute iRODS object path and uses a destination
-  placeholder in the returned command string
+- collection cue sets include recursive `put`, `get`, `phymove`, and `replicate`
+- data object cue sets include `put`, `get`, `phymove`, and `replicate`
+- `put` uses `<LOCAL_PATH>`
+- `get` uses `<DESTINATION_PATH>`
+- storage commands use `icommand` syntax with `-S <srcResource>` and `-R <targetResource>`
+- storage entries intentionally omit `gocmd`
 
 This package does not perform iRODS calls. It only formats documentation-style
 command cues.
