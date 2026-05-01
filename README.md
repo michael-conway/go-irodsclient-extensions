@@ -23,6 +23,7 @@ This repository is not intended to duplicate core transport, connection, or low-
 - `searchplugin/`: shared client and registry support for OpenAPI-based search plugins
 - `userpersist/`: conventions and helpers for `~/.irodsext` user persistence collections
 - `filecart/`: AVU-backed file cart lifecycle and entry management under `~/.irodsext/filecarts`
+- `favorites/`: AVU-backed favorite shortcuts under `~/.irodsext/favorites`
 - `tickets/`: ticket creation, validation, and lifecycle helpers
 - `integration/`: docker-test-framework integration tests (build-tagged)
 - `internal/testutil/`: shared test helpers for this repository
