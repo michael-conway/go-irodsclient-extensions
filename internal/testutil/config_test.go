@@ -20,9 +20,7 @@ func TestReadExtensionsTestConfig(t *testing.T) {
 		"IrodsZone: tempZone\n" +
 		"IrodsAdminUser: rods\n" +
 		"IrodsAdminPasswordFile: irods-admin-password.txt\n" +
-		"IrodsAdminLoginType: password\n" +
 		"IrodsAuthScheme: native\n" +
-		"IrodsNegotiationPolicy: native\n" +
 		"IrodsDefaultResource: demoResc\n" +
 		"IrodsPrimaryTestUser: test1\n" +
 		"IrodsPrimaryTestPassword: test\n" +
@@ -52,14 +50,8 @@ func TestReadExtensionsTestConfig(t *testing.T) {
 	if cfg.IrodsAdminPassword != "rods" {
 		t.Fatalf("expected password to resolve from file, got %q", cfg.IrodsAdminPassword)
 	}
-	if cfg.IrodsAdminLoginType != "password" {
-		t.Fatalf("expected admin login type password, got %q", cfg.IrodsAdminLoginType)
-	}
 	if cfg.IrodsAuthScheme != "native" {
 		t.Fatalf("expected auth scheme native, got %q", cfg.IrodsAuthScheme)
-	}
-	if cfg.IrodsNegotiationPolicy != "native" {
-		t.Fatalf("expected negotiation policy native, got %q", cfg.IrodsNegotiationPolicy)
 	}
 	if cfg.IrodsDefaultResource != "demoResc" {
 		t.Fatalf("expected default resource demoResc, got %q", cfg.IrodsDefaultResource)

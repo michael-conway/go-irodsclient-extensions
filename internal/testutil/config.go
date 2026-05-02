@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const ExtensionsTestConfigFileEnvVar = "GO_IRODSCLIENT_EXTENSIONS_TEST_CONFIG_FILE"
+const ExtensionsIntegrationConfigFileEnvVar = "GOEXT_TEST_CONFIG_ENV"
 
 type ExtensionsTestConfig struct {
 	IrodsHost                  string `yaml:"IrodsHost"`
@@ -18,9 +18,7 @@ type ExtensionsTestConfig struct {
 	IrodsAdminUser             string `yaml:"IrodsAdminUser"`
 	IrodsAdminPassword         string `yaml:"IrodsAdminPassword"`
 	IrodsAdminPasswordFile     string `yaml:"IrodsAdminPasswordFile"`
-	IrodsAdminLoginType        string `yaml:"IrodsAdminLoginType"`
 	IrodsAuthScheme            string `yaml:"IrodsAuthScheme"`
-	IrodsNegotiationPolicy     string `yaml:"IrodsNegotiationPolicy"`
 	IrodsDefaultResource       string `yaml:"IrodsDefaultResource"`
 	IrodsPrimaryTestUser       string `yaml:"IrodsPrimaryTestUser"`
 	IrodsPrimaryTestPassword   string `yaml:"IrodsPrimaryTestPassword"`
