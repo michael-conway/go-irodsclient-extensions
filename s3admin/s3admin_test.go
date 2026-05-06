@@ -315,6 +315,44 @@ func TestRefreshMappingUsesAVUsAsSourceOfTruth(t *testing.T) {
 	}
 }
 
+func TestRebuildMappingFromAVUsDoesNotUseKnownMappingFallback(t *testing.T) {
+	fs := newTestFilesystem()
+	fs.exactSearchOnly = true
+	fs.addCollection("/tempZone/home")
+	fs.addCollection("/tempZone/home/test1")
+	fs.metadata["/tempZone/home/test1"] = []Metadata{
+		{Name: AVUBucketAttribute, Value: "known-bucket"},
+	}
+
+	service := newTestService(t, fs)
+	if err := os.WriteFile(service.MappingFilePath(), []byte(`{"known-bucket":"/tempZone/home/test1"}`), 0o644); err != nil {
+		t.Fatalf("write mapping: %v", err)
+	}
+
+	result, err := service.RebuildMappingFromAVUs()
+	if err != nil {
+		t.Fatalf("rebuild mapping: %v", err)
+	}
+
+	if result.MappingFilePath != service.MappingFilePath() {
+		t.Fatalf("expected mapping file path %q, got %q", service.MappingFilePath(), result.MappingFilePath)
+	}
+	if len(result.Buckets) != 0 {
+		t.Fatalf("expected no buckets without known-name fallback, got %+v", result.Buckets)
+	}
+
+	mapping := readMappingFile(t, service.MappingFilePath())
+	if len(mapping) != 0 {
+		t.Fatalf("expected rebuilt mapping to be empty, got %+v", mapping)
+	}
+	if !fs.wasSearched(AVUBucketAttribute, metadataValueWildcard) {
+		t.Fatalf("expected wildcard search call, got %+v", fs.searches)
+	}
+	if fs.wasSearched(AVUBucketAttribute, "known-bucket") {
+		t.Fatalf("did not expect known-name fallback search, got %+v", fs.searches)
+	}
+}
+
 func TestRefreshMappingFallsBackToKnownMappingBucketNames(t *testing.T) {
 	fs := newTestFilesystem()
 	fs.exactSearchOnly = true

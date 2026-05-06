@@ -84,6 +84,13 @@ type Bucket struct {
 	IRODSPath string `json:"irods_path"`
 }
 
+// MappingRefreshResult describes the buckets written to the S3 API bucket
+// mapping file during a refresh operation.
+type MappingRefreshResult struct {
+	MappingFilePath string   `json:"mapping_file_path"`
+	Buckets         []Bucket `json:"buckets"`
+}
+
 // ListOptions controls bucket listing.
 type ListOptions struct {
 	// IRODSPath limits discovery to this collection. If empty, ScanRootPath is used.
@@ -362,6 +369,29 @@ func (service *S3Service) RefreshMapping() error {
 	return service.writeDiscoveredMappingLocked()
 }
 
+// RebuildMappingFromAVUs wipes and rewrites the mapping file from bucket AVUs
+// currently discoverable beneath ScanRootPath. Existing mapping file contents
+// are not used as a discovery aid.
+func (service *S3Service) RebuildMappingFromAVUs() (MappingRefreshResult, error) {
+	service.mappingFile.mu.Lock()
+	defer service.mappingFile.mu.Unlock()
+
+	buckets, err := service.listBuckets(ListOptions{IRODSPath: service.scanRoot, Recursive: true})
+	if err != nil {
+		return MappingRefreshResult{}, err
+	}
+	buckets = sortBuckets(deduplicateBuckets(buckets))
+
+	if err := service.writeBucketMappingLocked(buckets); err != nil {
+		return MappingRefreshResult{}, err
+	}
+
+	return MappingRefreshResult{
+		MappingFilePath: service.mappingFile.Path(),
+		Buckets:         buckets,
+	}, nil
+}
+
 func (service *S3Service) listBuckets(options ListOptions) ([]Bucket, error) {
 	startPath := normalizeIRODSPath(options.IRODSPath)
 	if startPath == "" {
@@ -423,6 +453,10 @@ func (service *S3Service) writeDiscoveredMappingLocked(extraBucketNames ...strin
 
 	buckets = sortBuckets(deduplicateBuckets(buckets))
 
+	return service.writeBucketMappingLocked(buckets)
+}
+
+func (service *S3Service) writeBucketMappingLocked(buckets []Bucket) error {
 	mapping := map[string]string{}
 	for _, bucket := range buckets {
 		if existingPath, ok := mapping[bucket.Name]; ok && existingPath != bucket.IRODSPath {
