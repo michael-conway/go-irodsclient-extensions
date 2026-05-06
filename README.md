@@ -24,6 +24,7 @@ This repository is not intended to duplicate core transport, connection, or low-
 - `userpersist/`: conventions and helpers for `~/.irodsext` user persistence collections
 - `filecart/`: AVU-backed file cart lifecycle and entry management under `~/.irodsext/filecarts`
 - `favorites/`: AVU-backed favorite shortcuts under `~/.irodsext/favorites`
+- `s3admin/`: AVU-backed iRODS S3 API bucket administration and local-file mapping synchronization
 - `tickets/`: ticket creation, validation, and lifecycle helpers
 - `integration/`: docker-test-framework integration tests (build-tagged)
 - `internal/testutil/`: shared test helpers for this repository
