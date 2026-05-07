@@ -16,6 +16,7 @@ var (
 	ErrMissingFilesystem = errors.New("missing filesystem")
 	ErrInvalidUserHome   = errors.New("invalid user home path")
 	ErrInvalidCategory   = errors.New("invalid category")
+	ErrInvalidFileName   = errors.New("invalid file name")
 )
 
 // CollectionFilesystem is the minimal collection API required for ensuring
@@ -46,6 +47,20 @@ func CategoryPath(userHomePath string, category string) (string, error) {
 		return "", ErrInvalidCategory
 	}
 	return path.Join(rootPath, category), nil
+}
+
+// FilePath returns the expected data object path under ~/.irodsext/<category>.
+func FilePath(userHomePath string, category string, fileName string) (string, error) {
+	categoryPath, err := CategoryPath(userHomePath, category)
+	if err != nil {
+		return "", err
+	}
+
+	fileName = strings.TrimSpace(fileName)
+	if fileName == "" || strings.Contains(fileName, "/") {
+		return "", ErrInvalidFileName
+	}
+	return path.Join(categoryPath, fileName), nil
 }
 
 // EnsureRootCollection verifies ~/.irodsext exists and creates it if missing.
