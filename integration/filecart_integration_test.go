@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"io"
 	"path"
 	"strings"
 	"testing"
@@ -192,6 +193,29 @@ func (filesystem *irodsFileCartFilesystem) CreateDataObject(dataObjectPath strin
 	handle, err := filesystem.filesystem.CreateFile(dataObjectPath, "", "w")
 	if err != nil {
 		return err
+	}
+	return handle.Close()
+}
+
+func (filesystem *irodsFileCartFilesystem) ReadDataObject(dataObjectPath string) ([]byte, error) {
+	handle, err := filesystem.filesystem.OpenFile(dataObjectPath, "", "r")
+	if err != nil {
+		return nil, err
+	}
+	defer handle.Close() //nolint
+	return io.ReadAll(handle)
+}
+
+func (filesystem *irodsFileCartFilesystem) WriteDataObject(dataObjectPath string, contents []byte) error {
+	handle, err := filesystem.filesystem.CreateFile(dataObjectPath, "", "w")
+	if err != nil {
+		return err
+	}
+	if len(contents) > 0 {
+		if _, err := handle.Write(contents); err != nil {
+			handle.Close() //nolint
+			return err
+		}
 	}
 	return handle.Close()
 }

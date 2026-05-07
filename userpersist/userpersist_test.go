@@ -39,6 +39,23 @@ func TestCategoryPathRejectsNestedCategory(t *testing.T) {
 	}
 }
 
+func TestFilePath(t *testing.T) {
+	filePath, err := FilePath("/tempZone/home/test1", "s3admin", "irods-s3-api-secret.txt")
+	if err != nil {
+		t.Fatalf("file path: %v", err)
+	}
+
+	if filePath != "/tempZone/home/test1/.irodsext/s3admin/irods-s3-api-secret.txt" {
+		t.Fatalf("unexpected file path %q", filePath)
+	}
+}
+
+func TestFilePathRejectsNestedFileName(t *testing.T) {
+	if _, err := FilePath("/tempZone/home/test1", "s3admin", "nested/file.txt"); !errors.Is(err, ErrInvalidFileName) {
+		t.Fatalf("expected ErrInvalidFileName, got %v", err)
+	}
+}
+
 func TestEnsureRootCollectionCreatesMissingCollection(t *testing.T) {
 	fs := &testCollectionFilesystem{
 		collections: map[string]struct{}{},

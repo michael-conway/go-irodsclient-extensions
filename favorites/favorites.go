@@ -34,8 +34,7 @@ type Metadata struct {
 }
 
 type Filesystem interface {
-	userpersist.CollectionFilesystem
-	CreateDataObject(dataObjectPath string) error
+	userpersist.FileFilesystem
 	ListDataObjectMetadata(dataObjectPath string) ([]Metadata, error)
 	AddDataObjectMetadata(dataObjectPath string, metadata Metadata) error
 	DeleteDataObjectMetadata(dataObjectPath string, metadata Metadata) error
@@ -53,6 +52,7 @@ type favoriteAVUValue struct {
 
 type Service struct {
 	filesystem   Filesystem
+	files        *userpersist.FileService
 	userHomePath string
 	categoryPath string
 	filePath     string
@@ -68,6 +68,11 @@ func NewService(filesystem Filesystem, userHomePath string) (*Service, error) {
 		return nil, ErrInvalidUserHome
 	}
 
+	fileService, err := userpersist.NewFileService(filesystem)
+	if err != nil {
+		return nil, err
+	}
+
 	categoryPath, err := userpersist.CategoryPath(userHomePath, CategoryName)
 	if err != nil {
 		return nil, err
@@ -75,6 +80,7 @@ func NewService(filesystem Filesystem, userHomePath string) (*Service, error) {
 
 	return &Service{
 		filesystem:   filesystem,
+		files:        fileService,
 		userHomePath: path.Clean(userHomePath),
 		categoryPath: categoryPath,
 		filePath:     path.Join(categoryPath, FavoritesFileName),
@@ -94,16 +100,12 @@ func (service *Service) FavoritesPath() string {
 }
 
 func (service *Service) Ensure() (string, error) {
-	categoryPath, err := userpersist.EnsureCategoryCollection(service.filesystem, service.userHomePath, CategoryName)
+	file, err := service.files.AddOrUpdateString(service.userHomePath, CategoryName, FavoritesFileName, "")
 	if err != nil {
 		return "", err
 	}
-	service.categoryPath = categoryPath
-	service.filePath = path.Join(categoryPath, FavoritesFileName)
-
-	if err := service.filesystem.CreateDataObject(service.filePath); err != nil {
-		return "", fmt.Errorf("create favorites data object %q: %w", service.filePath, err)
-	}
+	service.filePath = file.IRODSPath
+	service.categoryPath = path.Dir(file.IRODSPath)
 
 	return service.filePath, nil
 }

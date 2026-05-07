@@ -45,10 +45,8 @@ type Metadata struct {
 }
 
 type Filesystem interface {
-	userpersist.CollectionFilesystem
+	userpersist.FileFilesystem
 	ListDataObjects(collectionPath string) ([]string, error)
-	CreateDataObject(dataObjectPath string) error
-	DeleteDataObject(dataObjectPath string, force bool) error
 	CopyDataObject(srcPath string, destPath string, force bool) error
 	ListDataObjectMetadata(dataObjectPath string) ([]Metadata, error)
 	AddDataObjectMetadata(dataObjectPath string, metadata Metadata) error
@@ -69,6 +67,7 @@ type CartEntry struct {
 
 type Service struct {
 	filesystem   Filesystem
+	files        *userpersist.FileService
 	userHomePath string
 	categoryPath string
 }
@@ -87,6 +86,11 @@ func NewService(filesystem Filesystem, userHomePath string) (*Service, error) {
 		return nil, ErrInvalidUserHome
 	}
 
+	fileService, err := userpersist.NewFileService(filesystem)
+	if err != nil {
+		return nil, err
+	}
+
 	cartCollectionPath, err := userpersist.CategoryPath(userHomePath, CategoryName)
 	if err != nil {
 		return nil, err
@@ -94,6 +98,7 @@ func NewService(filesystem Filesystem, userHomePath string) (*Service, error) {
 
 	return &Service{
 		filesystem:   filesystem,
+		files:        fileService,
 		userHomePath: path.Clean(userHomePath),
 		categoryPath: cartCollectionPath,
 	}, nil
@@ -108,7 +113,7 @@ func (service *Service) CollectionPath() string {
 }
 
 func (service *Service) Ensure() (string, error) {
-	cartCollectionPath, err := userpersist.EnsureCategoryCollection(service.filesystem, service.userHomePath, CategoryName)
+	cartCollectionPath, err := service.files.EnsureContext(service.userHomePath, CategoryName)
 	if err != nil {
 		return "", err
 	}
@@ -122,16 +127,13 @@ func (service *Service) CreateCart(assignedName string) (Cart, error) {
 		return Cart{}, ErrInvalidCartName
 	}
 
-	if _, err := service.Ensure(); err != nil {
-		return Cart{}, err
-	}
-
 	fileName := newCartID() + CartExt
-	cartPath := path.Join(service.categoryPath, fileName)
-
-	if err := service.filesystem.CreateDataObject(cartPath); err != nil {
-		return Cart{}, fmt.Errorf("create cart data object %q: %w", cartPath, err)
+	cartFile, err := service.files.AddOrUpdateString(service.userHomePath, CategoryName, fileName, "")
+	if err != nil {
+		return Cart{}, fmt.Errorf("create cart data object %q: %w", fileName, err)
 	}
+	service.categoryPath = path.Dir(cartFile.IRODSPath)
+	cartPath := cartFile.IRODSPath
 
 	if err := service.filesystem.AddDataObjectMetadata(cartPath, Metadata{
 		Name:  AVUCartNameAttribute,
@@ -226,8 +228,11 @@ func (service *Service) DeleteCart(cartRef string) error {
 	if err != nil {
 		return err
 	}
+	if path.Dir(cartPath) != service.categoryPath {
+		return ErrInvalidCartRef
+	}
 
-	if err := service.filesystem.DeleteDataObject(cartPath, true); err != nil {
+	if err := service.files.DeleteFile(service.userHomePath, CategoryName, path.Base(cartPath), true); err != nil {
 		return fmt.Errorf("delete cart data object %q: %w", cartPath, err)
 	}
 	return nil

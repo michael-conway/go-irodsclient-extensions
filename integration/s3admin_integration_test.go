@@ -6,6 +6,7 @@ package integration
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path"
 	"sort"
@@ -126,6 +127,108 @@ func TestS3AdminBucketLifecycleIntegration(t *testing.T) {
 	})
 }
 
+func TestS3AdminUserKeyLifecycleIntegration(t *testing.T) {
+	filesystem := testutil.NewIntegrationPrimaryTestFilesystem(t)
+	defer filesystem.Release()
+
+	homePath := strings.TrimSpace(filesystem.GetHomeDirPath())
+	if homePath == "" {
+		t.Fatalf("expected non-empty primary user home path")
+	}
+
+	fixtureHome := path.Join(homePath, ".goext-s3admin-user-key-"+xid.New().String())
+	if err := filesystem.MakeDir(fixtureHome, true); err != nil {
+		t.Fatalf("create fixture user home %q: %v", fixtureHome, err)
+	}
+	t.Cleanup(func() {
+		_ = filesystem.RemoveDir(fixtureHome, true, true)
+	})
+
+	service, err := s3admin.NewS3UserKeyService(&irodsS3AdminFilesystem{filesystem: filesystem})
+	if err != nil {
+		t.Fatalf("create s3 user key service: %v", err)
+	}
+
+	expectedSecretPath := path.Join(fixtureHome, ".irodsext", s3admin.S3UserKeyContext, s3admin.S3UserKeyFileName)
+	ensuredPath, err := service.EnsureS3UserKeyStructureForHome(fixtureHome)
+	if err != nil {
+		t.Fatalf("ensure s3 user key structure: %v", err)
+	}
+	if ensuredPath != expectedSecretPath {
+		t.Fatalf("expected secret path %q, got %q", expectedSecretPath, ensuredPath)
+	}
+	if !filesystem.ExistsDir(path.Join(fixtureHome, ".irodsext")) {
+		t.Fatalf("expected userpersist root collection to exist")
+	}
+	if !filesystem.ExistsDir(path.Join(fixtureHome, ".irodsext", s3admin.S3UserKeyContext)) {
+		t.Fatalf("expected s3admin user key collection to exist")
+	}
+
+	initialKey := "Aa1Bb~2Cc3.-Dd4Ee5Ff6Gg7Hh8Ii9_Jj0Kk1Ll2"
+	stored, err := service.StoreS3UserKeyForHome(fixtureHome, initialKey)
+	if err != nil {
+		t.Fatalf("store s3 user key: %v", err)
+	}
+	if stored.IRODSPath != expectedSecretPath {
+		t.Fatalf("expected stored path %q, got %q", expectedSecretPath, stored.IRODSPath)
+	}
+	if stored.SecretKey != initialKey {
+		t.Fatalf("expected stored secret key %q, got %q", initialKey, stored.SecretKey)
+	}
+
+	retrieved, err := service.GetS3UserKeyForHome(fixtureHome)
+	if err != nil {
+		t.Fatalf("retrieve s3 user key: %v", err)
+	}
+	if retrieved.SecretKey != initialKey {
+		t.Fatalf("expected retrieved secret key %q, got %q", initialKey, retrieved.SecretKey)
+	}
+
+	updatedKey := strings.Repeat("Z", s3admin.S3UserSecretKeyLength)
+	updated, err := service.StoreS3UserKeyForHome(fixtureHome, updatedKey)
+	if err != nil {
+		t.Fatalf("update s3 user key: %v", err)
+	}
+	if updated.SecretKey != updatedKey {
+		t.Fatalf("expected updated secret key %q, got %q", updatedKey, updated.SecretKey)
+	}
+
+	if _, err := service.StoreS3UserKeyForHome(fixtureHome, "short"); !errors.Is(err, s3admin.ErrInvalidUserSecretKey) {
+		t.Fatalf("expected invalid user secret key error, got %v", err)
+	}
+
+	retrievedAfterInvalid, err := service.GetS3UserKeyForHome(fixtureHome)
+	if err != nil {
+		t.Fatalf("retrieve s3 user key after invalid store: %v", err)
+	}
+	if retrievedAfterInvalid.SecretKey != updatedKey {
+		t.Fatalf("expected invalid store to leave key %q, got %q", updatedKey, retrievedAfterInvalid.SecretKey)
+	}
+
+	generated, err := service.GenerateAndStoreS3UserKeyForHome(fixtureHome)
+	if err != nil {
+		t.Fatalf("generate and store s3 user key: %v", err)
+	}
+	if err := s3admin.ValidateS3UserSecretKey(generated.SecretKey); err != nil {
+		t.Fatalf("generated secret key was invalid: %v", err)
+	}
+
+	retrievedGenerated, err := service.GetS3UserKeyForHome(fixtureHome)
+	if err != nil {
+		t.Fatalf("retrieve generated s3 user key: %v", err)
+	}
+	if retrievedGenerated.SecretKey != generated.SecretKey {
+		t.Fatalf("expected generated key %q, got %q", generated.SecretKey, retrievedGenerated.SecretKey)
+	}
+
+	if err := service.DeleteS3UserKeyForHome(fixtureHome); err != nil {
+		t.Fatalf("delete s3 user key: %v", err)
+	}
+	if filesystem.ExistsFile(expectedSecretPath) {
+		t.Fatalf("expected deleted secret key file %q to be absent", expectedSecretPath)
+	}
+}
+
 func createS3AdminDummyFile(t *testing.T, filesystem *irodsfs.FileSystem, irodsPath string) {
 	t.Helper()
 
@@ -203,6 +306,37 @@ type irodsS3AdminFilesystem struct {
 
 func (filesystem *irodsS3AdminFilesystem) CollectionExists(irodsPath string) (bool, error) {
 	return filesystem.filesystem.ExistsDir(irodsPath), nil
+}
+
+func (filesystem *irodsS3AdminFilesystem) CreateCollection(irodsPath string, recurse bool) error {
+	return filesystem.filesystem.MakeDir(irodsPath, recurse)
+}
+
+func (filesystem *irodsS3AdminFilesystem) ReadDataObject(dataObjectPath string) ([]byte, error) {
+	handle, err := filesystem.filesystem.OpenFile(dataObjectPath, "", "r")
+	if err != nil {
+		return nil, err
+	}
+	defer handle.Close() //nolint
+	return io.ReadAll(handle)
+}
+
+func (filesystem *irodsS3AdminFilesystem) WriteDataObject(dataObjectPath string, contents []byte) error {
+	handle, err := filesystem.filesystem.CreateFile(dataObjectPath, "", "w")
+	if err != nil {
+		return err
+	}
+	if len(contents) > 0 {
+		if _, err := handle.Write(contents); err != nil {
+			handle.Close() //nolint
+			return err
+		}
+	}
+	return handle.Close()
+}
+
+func (filesystem *irodsS3AdminFilesystem) DeleteDataObject(dataObjectPath string, force bool) error {
+	return filesystem.filesystem.RemoveFile(dataObjectPath, force)
 }
 
 func (filesystem *irodsS3AdminFilesystem) SearchByMeta(metaName string, metaValue string) ([]s3admin.Entry, error) {

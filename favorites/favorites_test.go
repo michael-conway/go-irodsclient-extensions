@@ -253,6 +253,26 @@ func (fs *testFilesystem) CreateDataObject(dataObjectPath string) error {
 	return nil
 }
 
+func (fs *testFilesystem) ReadDataObject(dataObjectPath string) ([]byte, error) {
+	dataObjectPath = path.Clean(dataObjectPath)
+	if _, ok := fs.objects[dataObjectPath]; !ok {
+		return nil, errors.New("object does not exist")
+	}
+	return nil, nil
+}
+
+func (fs *testFilesystem) WriteDataObject(dataObjectPath string, contents []byte) error {
+	fs.objects[path.Clean(dataObjectPath)] = struct{}{}
+	return nil
+}
+
+func (fs *testFilesystem) DeleteDataObject(dataObjectPath string, force bool) error {
+	dataObjectPath = path.Clean(dataObjectPath)
+	delete(fs.objects, dataObjectPath)
+	delete(fs.metadata, dataObjectPath)
+	return nil
+}
+
 func (fs *testFilesystem) ListDataObjectMetadata(dataObjectPath string) ([]Metadata, error) {
 	dataObjectPath = path.Clean(dataObjectPath)
 	metadata := fs.metadata[dataObjectPath]

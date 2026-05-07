@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"io"
 	"path"
 	"strings"
 	"testing"
@@ -126,6 +127,33 @@ func (filesystem *irodsFavoritesFilesystem) CreateDataObject(dataObjectPath stri
 		return err
 	}
 	return handle.Close()
+}
+
+func (filesystem *irodsFavoritesFilesystem) ReadDataObject(dataObjectPath string) ([]byte, error) {
+	handle, err := filesystem.filesystem.OpenFile(dataObjectPath, "", "r")
+	if err != nil {
+		return nil, err
+	}
+	defer handle.Close() //nolint
+	return io.ReadAll(handle)
+}
+
+func (filesystem *irodsFavoritesFilesystem) WriteDataObject(dataObjectPath string, contents []byte) error {
+	handle, err := filesystem.filesystem.CreateFile(dataObjectPath, "", "w")
+	if err != nil {
+		return err
+	}
+	if len(contents) > 0 {
+		if _, err := handle.Write(contents); err != nil {
+			handle.Close() //nolint
+			return err
+		}
+	}
+	return handle.Close()
+}
+
+func (filesystem *irodsFavoritesFilesystem) DeleteDataObject(dataObjectPath string, force bool) error {
+	return filesystem.filesystem.RemoveFile(dataObjectPath, force)
 }
 
 func (filesystem *irodsFavoritesFilesystem) ListDataObjectMetadata(dataObjectPath string) ([]favorites.Metadata, error) {
