@@ -181,6 +181,29 @@ func TestGetS3UserKeyTrimsStoredFileWhitespace(t *testing.T) {
 	}
 }
 
+func TestGetS3UserKeyAtPathReadsAsMarkerUser(t *testing.T) {
+	fs := newTestUserKeyFilesystem()
+	service := newTestUserKeyService(t, fs)
+	secretPath := "/tempZone/home/test1/.irodsext/s3admin/irods-s3-api-secret.txt"
+	fs.files[secretPath] = []byte(validS3UserSecretKey)
+	fs.metadata[secretPath] = []Metadata{{Name: AVUSecretAttribute, Value: "test1"}}
+
+	retrieved, err := service.GetS3UserKeyAtPath(secretPath)
+	if err != nil {
+		t.Fatalf("get s3 user key at path: %v", err)
+	}
+	if retrieved.SecretKey != validS3UserSecretKey {
+		t.Fatalf("expected retrieved key %q, got %q", validS3UserSecretKey, retrieved.SecretKey)
+	}
+	if len(fs.readAsUserCalls) != 1 {
+		t.Fatalf("expected one read-as-user call, got %d", len(fs.readAsUserCalls))
+	}
+	call := fs.readAsUserCalls[0]
+	if call.path != secretPath || call.userID != "test1" {
+		t.Fatalf("expected read-as-user for %q as test1, got %+v", secretPath, call)
+	}
+}
+
 func TestS3UserKeyServiceRejectsMissingAccount(t *testing.T) {
 	fs := newTestUserKeyFilesystem()
 	service := newTestUserKeyService(t, fs)
@@ -213,6 +236,12 @@ type testUserKeyFilesystem struct {
 	metadata        map[string][]Metadata
 	createCalls     int
 	lastDeleteForce bool
+	readAsUserCalls []testReadAsUserCall
+}
+
+type testReadAsUserCall struct {
+	path   string
+	userID string
 }
 
 func newTestUserKeyFilesystem() *testUserKeyFilesystem {
@@ -243,6 +272,14 @@ func (fs *testUserKeyFilesystem) ReadDataObject(dataObjectPath string) ([]byte, 
 		return nil, errors.New("data object not found")
 	}
 	return append([]byte(nil), contents...), nil
+}
+
+func (fs *testUserKeyFilesystem) ReadDataObjectAsUser(dataObjectPath string, userID string) ([]byte, error) {
+	fs.readAsUserCalls = append(fs.readAsUserCalls, testReadAsUserCall{
+		path:   path.Clean(dataObjectPath),
+		userID: userID,
+	})
+	return fs.ReadDataObject(dataObjectPath)
 }
 
 func (fs *testUserKeyFilesystem) WriteDataObject(dataObjectPath string, contents []byte) error {

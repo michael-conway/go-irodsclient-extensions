@@ -648,6 +648,12 @@ func (service *S3UserMappingService) GetUserSecretKeyForHome(userHomePath string
 	return s3UserMappingFromKey(userKey, userID), nil
 }
 
+// ListUserSecretMappingsFromAVUs returns user secret mappings discovered from
+// current iRODS:S3:Secret marker AVUs without rewriting the mapping file.
+func (service *S3UserMappingService) ListUserSecretMappingsFromAVUs() ([]S3UserMapping, error) {
+	return service.discoverUserSecretMappings()
+}
+
 // DeleteUserSecretKey deletes the user's S3 API secret key and removes it from
 // the user mapping file.
 func (service *S3UserMappingService) DeleteUserSecretKey(account *irodstypes.IRODSAccount) error {

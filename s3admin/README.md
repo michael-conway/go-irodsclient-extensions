@@ -94,6 +94,14 @@ marked secret key file, validates the stored key, and rewrites the user mapping
 JSON from the discovered records. This operation should be run with an iRODS
 account that can see all managed users' secret key files.
 
+## go-irodsclient Adapter
+
+The `s3admin/irodsfs` package adapts `*fs.FileSystem` from go-irodsclient to
+the bucket and user mapping filesystem interfaces. Its metadata search helper
+handles exact and wildcard AVU searches and returns both collection and data
+object entries, which is required because bucket markers are collection AVUs and
+user secret markers are data object AVUs.
+
 ## Usage
 
 ```go

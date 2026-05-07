@@ -50,6 +50,12 @@ type UserKeyFilesystem interface {
 	DeleteDataObjectMetadata(dataObjectPath string, metadata Metadata) error
 }
 
+// UserKeyAsUserFilesystem optionally reads a data object through the iRODS user
+// identified by a marker AVU.
+type UserKeyAsUserFilesystem interface {
+	ReadDataObjectAsUser(dataObjectPath string, userID string) ([]byte, error)
+}
+
 // S3UserKey describes a user's managed iRODS S3 API secret key.
 type S3UserKey struct {
 	UserName     string `json:"user_name,omitempty"`
@@ -324,7 +330,12 @@ func (service *S3UserKeyService) GetS3UserKeyAtPath(secretPath string) (S3UserKe
 		return S3UserKey{}, ErrInvalidUserSecretKeyIRODSPath
 	}
 
-	contents, err := filesystem.ReadDataObject(secretPath)
+	userID, err := service.userIDForSecretKeyPath(secretPath)
+	if err != nil {
+		return S3UserKey{}, err
+	}
+
+	contents, err := readDataObjectForUser(filesystem, secretPath, userID)
 	if err != nil {
 		return S3UserKey{}, fmt.Errorf("read s3 user secret key %q: %w", secretPath, err)
 	}
@@ -332,11 +343,6 @@ func (service *S3UserKeyService) GetS3UserKeyAtPath(secretPath string) (S3UserKe
 	secretKey := strings.TrimSpace(string(contents))
 	if err := ValidateS3UserSecretKey(secretKey); err != nil {
 		return S3UserKey{}, fmt.Errorf("stored s3 user secret key %q: %w", secretPath, err)
-	}
-
-	userID, err := service.userIDForSecretKeyPath(secretPath)
-	if err != nil {
-		return S3UserKey{}, err
 	}
 
 	return S3UserKey{
@@ -420,6 +426,13 @@ func (service *S3UserKeyService) userIDForSecretKeyPath(secretPath string) (stri
 		return userID, nil
 	}
 	return "", ErrUserSecretMarkerNotFound
+}
+
+func readDataObjectForUser(filesystem UserKeyFilesystem, dataObjectPath string, userID string) ([]byte, error) {
+	if filesystemWithUser, ok := filesystem.(UserKeyAsUserFilesystem); ok {
+		return filesystemWithUser.ReadDataObjectAsUser(dataObjectPath, userID)
+	}
+	return filesystem.ReadDataObject(dataObjectPath)
 }
 
 func (service *S3UserKeyService) secretMarkerAVUs(secretPath string) ([]Metadata, error) {

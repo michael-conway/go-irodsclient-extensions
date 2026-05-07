@@ -6,7 +6,6 @@ package integration
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path"
 	"sort"
@@ -14,9 +13,9 @@ import (
 	"testing"
 
 	irodsfs "github.com/cyverse/go-irodsclient/fs"
-	irodscorefs "github.com/cyverse/go-irodsclient/irods/fs"
 	"github.com/michael-conway/go-irodsclient-extensions/internal/testutil"
 	"github.com/michael-conway/go-irodsclient-extensions/s3admin"
+	s3adminirodsfs "github.com/michael-conway/go-irodsclient-extensions/s3admin/irodsfs"
 	"github.com/rs/xid"
 )
 
@@ -52,7 +51,7 @@ func TestS3AdminBucketLifecycleIntegration(t *testing.T) {
 		t.Fatalf("create mapping file reference: %v", err)
 	}
 
-	service, err := s3admin.NewS3ServiceWithMappingFile(&irodsS3AdminFilesystem{filesystem: filesystem}, fixtureRoot, mappingFile)
+	service, err := s3admin.NewS3ServiceWithMappingFile(s3adminirodsfs.NewAdapter(filesystem), fixtureRoot, mappingFile)
 	if err != nil {
 		t.Fatalf("create s3admin service: %v", err)
 	}
@@ -144,7 +143,7 @@ func TestS3AdminUserKeyLifecycleIntegration(t *testing.T) {
 		_ = filesystem.RemoveDir(fixtureHome, true, true)
 	})
 
-	adapter := &irodsS3AdminFilesystem{filesystem: filesystem}
+	adapter := s3adminirodsfs.NewAdapter(filesystem)
 	keyService, err := s3admin.NewS3UserKeyService(adapter)
 	if err != nil {
 		t.Fatalf("create s3 user key service: %v", err)
@@ -342,155 +341,4 @@ func formatS3AdminMapping(mapping map[string]string) string {
 		parts = append(parts, key+"="+mapping[key])
 	}
 	return strings.Join(parts, ",")
-}
-
-type irodsS3AdminFilesystem struct {
-	filesystem *irodsfs.FileSystem
-}
-
-func (filesystem *irodsS3AdminFilesystem) CollectionExists(irodsPath string) (bool, error) {
-	return filesystem.filesystem.ExistsDir(irodsPath), nil
-}
-
-func (filesystem *irodsS3AdminFilesystem) CreateCollection(irodsPath string, recurse bool) error {
-	return filesystem.filesystem.MakeDir(irodsPath, recurse)
-}
-
-func (filesystem *irodsS3AdminFilesystem) ReadDataObject(dataObjectPath string) ([]byte, error) {
-	handle, err := filesystem.filesystem.OpenFile(dataObjectPath, "", "r")
-	if err != nil {
-		return nil, err
-	}
-	defer handle.Close() //nolint
-	return io.ReadAll(handle)
-}
-
-func (filesystem *irodsS3AdminFilesystem) WriteDataObject(dataObjectPath string, contents []byte) error {
-	handle, err := filesystem.filesystem.CreateFile(dataObjectPath, "", "w")
-	if err != nil {
-		return err
-	}
-	if len(contents) > 0 {
-		if _, err := handle.Write(contents); err != nil {
-			handle.Close() //nolint
-			return err
-		}
-	}
-	return handle.Close()
-}
-
-func (filesystem *irodsS3AdminFilesystem) DeleteDataObject(dataObjectPath string, force bool) error {
-	return filesystem.filesystem.RemoveFile(dataObjectPath, force)
-}
-
-// TODO://optimize avu query
-func (filesystem *irodsS3AdminFilesystem) SearchByMeta(metaName string, metaValue string) ([]s3admin.Entry, error) {
-	if strings.ContainsAny(metaValue, "%_") {
-		return filesystem.searchCollectionsByMetaWildcard(metaName, metaValue)
-	}
-
-	entries, err := filesystem.filesystem.SearchByMeta(metaName, metaValue)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]s3admin.Entry, 0, len(entries))
-	for _, entry := range entries {
-		if entry == nil {
-			continue
-		}
-
-		entryType := s3admin.EntryTypeFile
-		if entry.IsDir() {
-			entryType = s3admin.EntryTypeDirectory
-		}
-
-		result = append(result, s3admin.Entry{
-			Path: entry.Path,
-			Type: entryType,
-		})
-	}
-	return result, nil
-}
-
-// TODO://optimize avu query
-func (filesystem *irodsS3AdminFilesystem) searchCollectionsByMetaWildcard(metaName string, metaValue string) ([]s3admin.Entry, error) {
-	conn, err := filesystem.filesystem.GetMetadataConnection(true)
-	if err != nil {
-		return nil, err
-	}
-	defer filesystem.filesystem.ReturnMetadataConnection(conn) //nolint
-
-	collections, err := irodscorefs.SearchCollectionsByMetaWildcard(conn, metaName, metaValue)
-	if err != nil {
-		return nil, err
-	}
-
-	entries := make([]s3admin.Entry, 0, len(collections))
-	for _, collection := range collections {
-		if collection == nil {
-			continue
-		}
-		entries = append(entries, s3admin.Entry{
-			Path: collection.Path,
-			Type: s3admin.EntryTypeCollection,
-		})
-	}
-	return entries, nil
-}
-
-func (filesystem *irodsS3AdminFilesystem) ListCollectionMetadata(collectionPath string) ([]s3admin.Metadata, error) {
-	metadata, err := filesystem.filesystem.ListMetadata(collectionPath)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]s3admin.Metadata, 0, len(metadata))
-	for _, avu := range metadata {
-		if avu == nil {
-			continue
-		}
-		result = append(result, s3admin.Metadata{
-			Name:  avu.Name,
-			Value: avu.Value,
-			Units: avu.Units,
-		})
-	}
-	return result, nil
-}
-
-func (filesystem *irodsS3AdminFilesystem) ListDataObjectMetadata(dataObjectPath string) ([]s3admin.Metadata, error) {
-	metadata, err := filesystem.filesystem.ListMetadata(dataObjectPath)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]s3admin.Metadata, 0, len(metadata))
-	for _, avu := range metadata {
-		if avu == nil {
-			continue
-		}
-		result = append(result, s3admin.Metadata{
-			Name:  avu.Name,
-			Value: avu.Value,
-			Units: avu.Units,
-		})
-	}
-	return result, nil
-}
-
-func (filesystem *irodsS3AdminFilesystem) AddCollectionMetadata(collectionPath string, metadata s3admin.Metadata) error {
-	return filesystem.filesystem.AddMetadata(collectionPath, metadata.Name, metadata.Value, metadata.Units)
-}
-
-func (filesystem *irodsS3AdminFilesystem) DeleteCollectionMetadata(collectionPath string, metadata s3admin.Metadata) error {
-	return filesystem.filesystem.DeleteMetadataByAVU(collectionPath, metadata.Name, metadata.Value, metadata.Units)
-}
-
-func (filesystem *irodsS3AdminFilesystem) AddDataObjectMetadata(dataObjectPath string, metadata s3admin.Metadata) error {
-	return filesystem.filesystem.AddMetadata(dataObjectPath, metadata.Name, metadata.Value, metadata.Units)
-}
-
-func (filesystem *irodsS3AdminFilesystem) DeleteDataObjectMetadata(dataObjectPath string, metadata s3admin.Metadata) error {
-	return filesystem.filesystem.DeleteMetadataByAVU(dataObjectPath, metadata.Name, metadata.Value, metadata.Units)
 }
