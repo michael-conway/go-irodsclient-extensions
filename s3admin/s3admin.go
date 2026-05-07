@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 )
 
 const (
@@ -22,14 +24,15 @@ const (
 )
 
 var (
-	ErrMissingFilesystem  = errors.New("missing filesystem")
-	ErrMissingMappingFile = errors.New("missing mapping file")
-	ErrInvalidIRODSPath   = errors.New("invalid irods path")
-	ErrInvalidScanRoot    = errors.New("invalid scan root")
-	ErrInvalidBucketName  = errors.New("invalid bucket name")
-	ErrBucketNotFound     = errors.New("bucket not found")
-	ErrBucketAlreadySet   = errors.New("bucket already set for irods path")
-	ErrDuplicateBucket    = errors.New("duplicate bucket")
+	ErrMissingFilesystem    = errors.New("missing filesystem")
+	ErrMissingMappingFile   = errors.New("missing mapping file")
+	ErrInvalidIRODSPath     = errors.New("invalid irods path")
+	ErrInvalidScanRoot      = errors.New("invalid scan root")
+	ErrInvalidBucketName    = errors.New("invalid bucket name")
+	ErrBucketNotFound       = errors.New("bucket not found")
+	ErrBucketAlreadySet     = errors.New("bucket already set for irods path")
+	ErrDuplicateBucket      = errors.New("duplicate bucket")
+	ErrDuplicateUserMapping = errors.New("duplicate user mapping")
 )
 
 var bucketNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
@@ -91,6 +94,29 @@ type MappingRefreshResult struct {
 	Buckets         []Bucket `json:"buckets"`
 }
 
+// UserMappingEntry is the JSON shape consumed by the iRODS S3 API local-file
+// user mapping plugin.
+type UserMappingEntry struct {
+	SecretKey string `json:"secret_key"`
+	Username  string `json:"username"`
+}
+
+// S3UserMapping describes a managed iRODS S3 API user secret mapping.
+type S3UserMapping struct {
+	UserID       string `json:"user_id"`
+	Username     string `json:"username"`
+	SecretKey    string `json:"secret_key,omitempty"`
+	UserHomePath string `json:"user_home_path,omitempty"`
+	IRODSPath    string `json:"irods_path,omitempty"`
+}
+
+// UserMappingRefreshResult describes the users written to the S3 API user
+// mapping file during a refresh operation.
+type UserMappingRefreshResult struct {
+	MappingFilePath string          `json:"mapping_file_path"`
+	Users           []S3UserMapping `json:"users"`
+}
+
 // ListOptions controls bucket listing.
 type ListOptions struct {
 	// IRODSPath limits discovery to this collection. If empty, ScanRootPath is used.
@@ -119,9 +145,34 @@ func (err *DuplicateBucketError) Unwrap() error {
 	return ErrDuplicateBucket
 }
 
+// DuplicateUserMappingError identifies more than one secret for the same user.
+type DuplicateUserMappingError struct {
+	UserID        string
+	ExistingPath  string
+	RequestedPath string
+}
+
+func (err *DuplicateUserMappingError) Error() string {
+	if err == nil {
+		return ErrDuplicateUserMapping.Error()
+	}
+	return fmt.Sprintf("duplicate user mapping %q already assigned to %q", err.UserID, err.ExistingPath)
+}
+
+func (err *DuplicateUserMappingError) Unwrap() error {
+	return ErrDuplicateUserMapping
+}
+
 // MappingFile is a mutex-guarded reference to the shared iRODS S3 API bucket
 // mapping file.
 type MappingFile struct {
+	mu       sync.Mutex
+	filePath string
+}
+
+// UserMappingFile is a mutex-guarded reference to the shared iRODS S3 API user
+// mapping file.
+type UserMappingFile struct {
 	mu       sync.Mutex
 	filePath string
 }
@@ -155,11 +206,58 @@ func (mappingFile *MappingFile) Load() (map[string]string, error) {
 	return mappingFile.loadLocked()
 }
 
+// NewUserMappingFile returns a guarded user mapping file reference.
+func NewUserMappingFile(filePath string) (*UserMappingFile, error) {
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		return nil, ErrMissingMappingFile
+	}
+	return &UserMappingFile{filePath: filePath}, nil
+}
+
+// Path returns the user mapping file path.
+func (mappingFile *UserMappingFile) Path() string {
+	if mappingFile == nil {
+		return ""
+	}
+	return mappingFile.filePath
+}
+
+// Load reads the current user mapping file. A missing file is treated as an
+// empty map.
+func (mappingFile *UserMappingFile) Load() (map[string]UserMappingEntry, error) {
+	if mappingFile == nil {
+		return nil, ErrMissingMappingFile
+	}
+
+	mappingFile.mu.Lock()
+	defer mappingFile.mu.Unlock()
+
+	return mappingFile.loadLocked()
+}
+
 // S3Service manages S3 bucket AVUs and keeps the S3 API mapping file in sync.
 type S3Service struct {
 	filesystem  Filesystem
 	scanRoot    string
 	mappingFile *MappingFile
+}
+
+// UserMappingFilesystem is the iRODS API required for managed S3 user secret
+// keys and user mapping file refreshes.
+type UserMappingFilesystem interface {
+	UserKeyFilesystem
+	// SearchByMeta searches filesystem entries by AVU name and value.
+	// Implementations backed by go-irodsclient can delegate to fs.FileSystem.SearchByMeta.
+	SearchByMeta(metaName string, metaValue string) ([]Entry, error)
+}
+
+// S3UserMappingService manages S3 user secret keys and keeps the S3 API user
+// mapping file in sync.
+type S3UserMappingService struct {
+	filesystem  UserMappingFilesystem
+	userKeys    *S3UserKeyService
+	mappingFile *UserMappingFile
 }
 
 // NewS3Service creates a bucket manager service.
@@ -194,6 +292,37 @@ func NewS3ServiceWithMappingFile(filesystem Filesystem, scanRootPath string, map
 	}, nil
 }
 
+// NewS3UserMappingService creates a user secret key mapping service.
+func NewS3UserMappingService(filesystem UserMappingFilesystem, mappingFilePath string) (*S3UserMappingService, error) {
+	mappingFile, err := NewUserMappingFile(mappingFilePath)
+	if err != nil {
+		return nil, err
+	}
+	return NewS3UserMappingServiceWithMappingFile(filesystem, mappingFile)
+}
+
+// NewS3UserMappingServiceWithMappingFile creates a user secret key mapping
+// service using a shared user mapping file reference.
+func NewS3UserMappingServiceWithMappingFile(filesystem UserMappingFilesystem, mappingFile *UserMappingFile) (*S3UserMappingService, error) {
+	if filesystem == nil {
+		return nil, ErrMissingFilesystem
+	}
+	if mappingFile == nil {
+		return nil, ErrMissingMappingFile
+	}
+
+	userKeys, err := NewS3UserKeyService(filesystem)
+	if err != nil {
+		return nil, err
+	}
+
+	return &S3UserMappingService{
+		filesystem:  filesystem,
+		userKeys:    userKeys,
+		mappingFile: mappingFile,
+	}, nil
+}
+
 // ScanRootPath returns the configured duplicate-detection root.
 func (service *S3Service) ScanRootPath() string {
 	return service.scanRoot
@@ -201,6 +330,11 @@ func (service *S3Service) ScanRootPath() string {
 
 // MappingFilePath returns the configured S3 API bucket mapping file.
 func (service *S3Service) MappingFilePath() string {
+	return service.mappingFile.Path()
+}
+
+// UserMappingFilePath returns the configured S3 API user mapping file.
+func (service *S3UserMappingService) UserMappingFilePath() string {
 	return service.mappingFile.Path()
 }
 
@@ -392,6 +526,198 @@ func (service *S3Service) RebuildMappingFromAVUs() (MappingRefreshResult, error)
 	}, nil
 }
 
+// AddUserSecretKey stores a user S3 API secret key and refreshes the user
+// mapping file. It behaves as an add-or-update operation for the user.
+func (service *S3UserMappingService) AddUserSecretKey(account *irodstypes.IRODSAccount, secretKey string) (S3UserMapping, error) {
+	return service.StoreUserSecretKey(account, secretKey)
+}
+
+// UpdateUserSecretKey stores a replacement S3 API secret key and refreshes the
+// user mapping file.
+func (service *S3UserMappingService) UpdateUserSecretKey(account *irodstypes.IRODSAccount, secretKey string) (S3UserMapping, error) {
+	return service.StoreUserSecretKey(account, secretKey)
+}
+
+// UpdateUserSecretKeyForHomeAndUser stores a replacement S3 API secret key for
+// an explicit user home path and marker user ID, then refreshes the user mapping
+// file.
+func (service *S3UserMappingService) UpdateUserSecretKeyForHomeAndUser(userHomePath string, userID string, secretKey string) (S3UserMapping, error) {
+	return service.StoreUserSecretKeyForHomeAndUser(userHomePath, userID, secretKey)
+}
+
+// StoreUserSecretKey stores or replaces a user S3 API secret key and refreshes
+// the user mapping file.
+func (service *S3UserMappingService) StoreUserSecretKey(account *irodstypes.IRODSAccount, secretKey string) (S3UserMapping, error) {
+	userID, err := s3UserIDFromAccount(account)
+	if err != nil {
+		return S3UserMapping{}, err
+	}
+	userHomePath, err := s3UserHomePath(account)
+	if err != nil {
+		return S3UserMapping{}, err
+	}
+
+	return service.StoreUserSecretKeyForHomeAndUser(userHomePath, userID, secretKey)
+}
+
+// StoreUserSecretKeyForHomeAndUser stores or replaces a user S3 API secret key
+// for an explicit user home path and marker user ID, then refreshes the user
+// mapping file.
+func (service *S3UserMappingService) StoreUserSecretKeyForHomeAndUser(userHomePath string, userID string, secretKey string) (S3UserMapping, error) {
+	userID = normalizeUserID(userID)
+	if userID == "" {
+		return S3UserMapping{}, ErrInvalidUserID
+	}
+
+	service.mappingFile.mu.Lock()
+	defer service.mappingFile.mu.Unlock()
+
+	userKey, err := service.userKeys.StoreS3UserKeyForHomeAndUser(userHomePath, userID, secretKey)
+	if err != nil {
+		return S3UserMapping{}, err
+	}
+
+	mapping, err := service.mappingFile.loadLocked()
+	if err != nil {
+		return S3UserMapping{}, err
+	}
+	mapping[userID] = UserMappingEntry{
+		SecretKey: userKey.SecretKey,
+		Username:  userID,
+	}
+
+	if err := service.mappingFile.replaceLocked(mapping); err != nil {
+		return S3UserMapping{}, err
+	}
+
+	return s3UserMappingFromKey(userKey, userID), nil
+}
+
+// GenerateAndStoreUserSecretKey generates, stores, and maps a new user S3 API
+// secret key.
+func (service *S3UserMappingService) GenerateAndStoreUserSecretKey(account *irodstypes.IRODSAccount) (S3UserMapping, error) {
+	userID, err := s3UserIDFromAccount(account)
+	if err != nil {
+		return S3UserMapping{}, err
+	}
+	userHomePath, err := s3UserHomePath(account)
+	if err != nil {
+		return S3UserMapping{}, err
+	}
+	return service.GenerateAndStoreUserSecretKeyForHomeAndUser(userHomePath, userID)
+}
+
+// GenerateAndStoreUserSecretKeyForHomeAndUser generates, stores, and maps a new
+// user S3 API secret key for an explicit user home path and marker user ID.
+func (service *S3UserMappingService) GenerateAndStoreUserSecretKeyForHomeAndUser(userHomePath string, userID string) (S3UserMapping, error) {
+	secretKey, err := GenerateS3UserSecretKey()
+	if err != nil {
+		return S3UserMapping{}, err
+	}
+	return service.StoreUserSecretKeyForHomeAndUser(userHomePath, userID, secretKey)
+}
+
+// GetUserSecretKey retrieves the user's current S3 API secret key from iRODS.
+func (service *S3UserMappingService) GetUserSecretKey(account *irodstypes.IRODSAccount) (S3UserMapping, error) {
+	userID, err := s3UserIDFromAccount(account)
+	if err != nil {
+		return S3UserMapping{}, err
+	}
+	userHomePath, err := s3UserHomePath(account)
+	if err != nil {
+		return S3UserMapping{}, err
+	}
+
+	return service.GetUserSecretKeyForHome(userHomePath, userID)
+}
+
+// GetUserSecretKeyForHome retrieves a user's current S3 API secret key from an
+// explicit user home path.
+func (service *S3UserMappingService) GetUserSecretKeyForHome(userHomePath string, expectedUserID string) (S3UserMapping, error) {
+	userKey, err := service.userKeys.GetS3UserKeyForHome(userHomePath)
+	if err != nil {
+		return S3UserMapping{}, err
+	}
+	userID := normalizeUserID(userKey.UserName)
+	if userID == "" {
+		userID = normalizeUserID(expectedUserID)
+	}
+	if userID == "" {
+		return S3UserMapping{}, ErrInvalidUserID
+	}
+	return s3UserMappingFromKey(userKey, userID), nil
+}
+
+// DeleteUserSecretKey deletes the user's S3 API secret key and removes it from
+// the user mapping file.
+func (service *S3UserMappingService) DeleteUserSecretKey(account *irodstypes.IRODSAccount) error {
+	userID, err := s3UserIDFromAccount(account)
+	if err != nil {
+		return err
+	}
+	userHomePath, err := s3UserHomePath(account)
+	if err != nil {
+		return err
+	}
+
+	return service.DeleteUserSecretKeyForHomeAndUser(userHomePath, userID)
+}
+
+// DeleteUserSecretKeyForHomeAndUser deletes a user's S3 API secret key for an
+// explicit user home path and removes the user ID from the mapping file.
+func (service *S3UserMappingService) DeleteUserSecretKeyForHomeAndUser(userHomePath string, userID string) error {
+	userID = normalizeUserID(userID)
+	if userID == "" {
+		return ErrInvalidUserID
+	}
+
+	service.mappingFile.mu.Lock()
+	defer service.mappingFile.mu.Unlock()
+
+	if err := service.userKeys.DeleteS3UserKeyForHome(userHomePath); err != nil {
+		return err
+	}
+
+	mapping, err := service.mappingFile.loadLocked()
+	if err != nil {
+		return err
+	}
+	delete(mapping, userID)
+	return service.mappingFile.replaceLocked(mapping)
+}
+
+// RefreshUserMapping rewrites the user mapping file from all marked S3 user
+// secret key data objects.
+func (service *S3UserMappingService) RefreshUserMapping() error {
+	service.mappingFile.mu.Lock()
+	defer service.mappingFile.mu.Unlock()
+
+	return service.writeDiscoveredUserMappingLocked()
+}
+
+// RebuildUserMappingFromAVUs wipes and rewrites the user mapping file from
+// marker AVUs currently discoverable by metadata search. Existing mapping file
+// contents are not used as a discovery aid.
+func (service *S3UserMappingService) RebuildUserMappingFromAVUs() (UserMappingRefreshResult, error) {
+	service.mappingFile.mu.Lock()
+	defer service.mappingFile.mu.Unlock()
+
+	users, err := service.discoverUserSecretMappings()
+	if err != nil {
+		return UserMappingRefreshResult{}, err
+	}
+	users = sortUserMappings(deduplicateUserMappings(users))
+
+	if err := service.writeUserMappingLocked(users); err != nil {
+		return UserMappingRefreshResult{}, err
+	}
+
+	return UserMappingRefreshResult{
+		MappingFilePath: service.mappingFile.Path(),
+		Users:           users,
+	}, nil
+}
+
 func (service *S3Service) listBuckets(options ListOptions) ([]Bucket, error) {
 	startPath := normalizeIRODSPath(options.IRODSPath)
 	if startPath == "" {
@@ -472,6 +798,69 @@ func (service *S3Service) writeBucketMappingLocked(buckets []Bucket) error {
 	return service.mappingFile.replaceLocked(mapping)
 }
 
+func (service *S3UserMappingService) writeDiscoveredUserMappingLocked() error {
+	users, err := service.discoverUserSecretMappings()
+	if err != nil {
+		return err
+	}
+	users = sortUserMappings(deduplicateUserMappings(users))
+	return service.writeUserMappingLocked(users)
+}
+
+func (service *S3UserMappingService) writeUserMappingLocked(users []S3UserMapping) error {
+	mapping := map[string]UserMappingEntry{}
+	pathByUserID := map[string]string{}
+	for _, user := range users {
+		userID := normalizeUserID(user.UserID)
+		if userID == "" {
+			userID = normalizeUserID(user.Username)
+		}
+		if userID == "" || strings.TrimSpace(user.SecretKey) == "" {
+			continue
+		}
+		if existingPath, ok := pathByUserID[userID]; ok && existingPath != user.IRODSPath {
+			return &DuplicateUserMappingError{
+				UserID:        userID,
+				ExistingPath:  existingPath,
+				RequestedPath: user.IRODSPath,
+			}
+		}
+		pathByUserID[userID] = user.IRODSPath
+		mapping[userID] = UserMappingEntry{
+			SecretKey: user.SecretKey,
+			Username:  userID,
+		}
+	}
+
+	return service.mappingFile.replaceLocked(mapping)
+}
+
+// TODO://optimize avu query
+func (service *S3UserMappingService) discoverUserSecretMappings() ([]S3UserMapping, error) {
+	entries, err := service.filesystem.SearchByMeta(AVUSecretAttribute, metadataValueWildcard)
+	if err != nil {
+		return nil, fmt.Errorf("search s3 user secret metadata %q=%q: %w", AVUSecretAttribute, metadataValueWildcard, err)
+	}
+
+	users := make([]S3UserMapping, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDataObject() {
+			continue
+		}
+
+		userKey, err := service.userKeys.GetS3UserKeyAtPath(entry.Path)
+		if err != nil {
+			return nil, err
+		}
+		userID := normalizeUserID(userKey.UserName)
+		if userID == "" {
+			return nil, ErrUserSecretMarkerNotFound
+		}
+		users = append(users, s3UserMappingFromKey(userKey, userID))
+	}
+	return sortUserMappings(deduplicateUserMappings(users)), nil
+}
+
 func (service *S3Service) searchBucketsByName(bucketName string, options ListOptions) ([]Bucket, error) {
 	bucketName = normalizeBucketName(bucketName)
 	if bucketName == "" {
@@ -481,6 +870,7 @@ func (service *S3Service) searchBucketsByName(bucketName string, options ListOpt
 	return service.searchBucketsByMetadataValue(bucketName, options)
 }
 
+// TODO://optimize avu query
 func (service *S3Service) searchBucketsByMetadataValue(metaValue string, options ListOptions) ([]Bucket, error) {
 	startPath := normalizeIRODSPath(options.IRODSPath)
 	if startPath == "" {
@@ -583,6 +973,10 @@ func (entry Entry) IsCollection() bool {
 	return entry.Type == EntryTypeCollection || entry.Type == EntryTypeDirectory
 }
 
+func (entry Entry) IsDataObject() bool {
+	return entry.Type == EntryTypeDataObject || entry.Type == EntryTypeFile
+}
+
 func (service *S3Service) ensureCollection(irodsPath string) error {
 	exists, err := service.filesystem.CollectionExists(irodsPath)
 	if err != nil {
@@ -668,6 +1062,100 @@ func (mappingFile *MappingFile) replaceLocked(mapping map[string]string) error {
 	return nil
 }
 
+func (mappingFile *UserMappingFile) loadLocked() (map[string]UserMappingEntry, error) {
+	contents, err := os.ReadFile(mappingFile.filePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return map[string]UserMappingEntry{}, nil
+		}
+		return nil, fmt.Errorf("read user mapping file %q: %w", mappingFile.filePath, err)
+	}
+
+	if len(strings.TrimSpace(string(contents))) == 0 {
+		return map[string]UserMappingEntry{}, nil
+	}
+
+	mapping := map[string]UserMappingEntry{}
+	if err := json.Unmarshal(contents, &mapping); err != nil {
+		return nil, fmt.Errorf("decode user mapping file %q: %w", mappingFile.filePath, err)
+	}
+
+	normalized := map[string]UserMappingEntry{}
+	for userID, entry := range mapping {
+		userID = normalizeUserID(userID)
+		username := normalizeUserID(entry.Username)
+		secretKey := strings.TrimSpace(entry.SecretKey)
+		if userID == "" {
+			userID = username
+		}
+		if username == "" {
+			username = userID
+		}
+		if userID == "" || username == "" || secretKey == "" {
+			continue
+		}
+		normalized[userID] = UserMappingEntry{
+			SecretKey: secretKey,
+			Username:  username,
+		}
+	}
+	return normalized, nil
+}
+
+func (mappingFile *UserMappingFile) replaceLocked(mapping map[string]UserMappingEntry) error {
+	normalized := map[string]UserMappingEntry{}
+	for userID, entry := range mapping {
+		userID = normalizeUserID(userID)
+		username := normalizeUserID(entry.Username)
+		secretKey := strings.TrimSpace(entry.SecretKey)
+		if userID == "" {
+			userID = username
+		}
+		if username == "" {
+			username = userID
+		}
+		if userID == "" || username == "" || secretKey == "" {
+			continue
+		}
+		normalized[userID] = UserMappingEntry{
+			SecretKey: secretKey,
+			Username:  username,
+		}
+	}
+
+	data, err := json.MarshalIndent(normalized, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+
+	dir := filepath.Dir(mappingFile.filePath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create user mapping file directory %q: %w", dir, err)
+	}
+
+	tempFile, err := os.CreateTemp(dir, ".s3-user-mapping-*.json")
+	if err != nil {
+		return fmt.Errorf("create temporary user mapping file in %q: %w", dir, err)
+	}
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath) //nolint
+
+	if _, err := tempFile.Write(data); err != nil {
+		tempFile.Close() //nolint
+		return fmt.Errorf("write temporary user mapping file %q: %w", tempPath, err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("close temporary user mapping file %q: %w", tempPath, err)
+	}
+
+	if err := os.Rename(tempPath, mappingFile.filePath); err != nil {
+		return fmt.Errorf("replace user mapping file %q: %w", mappingFile.filePath, err)
+	}
+
+	return nil
+}
+
 func bucketByName(buckets []Bucket, bucketName string) (Bucket, bool) {
 	for _, bucket := range buckets {
 		if bucket.Name == bucketName {
@@ -699,6 +1187,46 @@ func deduplicateBuckets(buckets []Bucket) []Bucket {
 		}
 		seen[bucket] = struct{}{}
 		result = append(result, bucket)
+	}
+	return result
+}
+
+func s3UserMappingFromKey(userKey S3UserKey, userID string) S3UserMapping {
+	userID = normalizeUserID(userID)
+	if userID == "" {
+		userID = normalizeUserID(userKey.UserName)
+	}
+	return S3UserMapping{
+		UserID:       userID,
+		Username:     userID,
+		SecretKey:    userKey.SecretKey,
+		UserHomePath: userKey.UserHomePath,
+		IRODSPath:    userKey.IRODSPath,
+	}
+}
+
+func sortUserMappings(users []S3UserMapping) []S3UserMapping {
+	sort.Slice(users, func(i, j int) bool {
+		if users[i].UserID == users[j].UserID {
+			return users[i].IRODSPath < users[j].IRODSPath
+		}
+		return users[i].UserID < users[j].UserID
+	})
+	return users
+}
+
+func deduplicateUserMappings(users []S3UserMapping) []S3UserMapping {
+	seen := map[S3UserMapping]struct{}{}
+	result := make([]S3UserMapping, 0, len(users))
+	for _, user := range users {
+		if user.UserID == "" || user.SecretKey == "" {
+			continue
+		}
+		if _, ok := seen[user]; ok {
+			continue
+		}
+		seen[user] = struct{}{}
+		result = append(result, user)
 	}
 	return result
 }

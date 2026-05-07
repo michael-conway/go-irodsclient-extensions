@@ -41,6 +41,10 @@ func TestStoreRetrieveAndDeleteS3UserKey(t *testing.T) {
 	if got := string(fs.files[expectedPath]); got != validS3UserSecretKey {
 		t.Fatalf("expected stored key %q, got %q", validS3UserSecretKey, got)
 	}
+	metadata := fs.metadata[expectedPath]
+	if len(metadata) != 1 || metadata[0].Name != AVUSecretAttribute || metadata[0].Value != "test1" {
+		t.Fatalf("expected secret marker AVU for test1, got %+v", metadata)
+	}
 	if _, ok := fs.collections["/tempZone/home/test1/.irodsext"]; !ok {
 		t.Fatalf("expected userpersist root collection to be created")
 	}
@@ -85,6 +89,10 @@ func TestStoreS3UserKeyUpdatesExistingFile(t *testing.T) {
 	}
 	if got := string(fs.files[secretPath]); got != updatedKey {
 		t.Fatalf("expected updated key %q, got %q", updatedKey, got)
+	}
+	metadata := fs.metadata[secretPath]
+	if len(metadata) != 1 || metadata[0].Name != AVUSecretAttribute || metadata[0].Value != "test1" {
+		t.Fatalf("expected single replacement secret marker AVU for test1, got %+v", metadata)
 	}
 	if fs.createCalls != 2 {
 		t.Fatalf("expected only root and category create calls, got %d", fs.createCalls)
@@ -162,6 +170,7 @@ func TestGetS3UserKeyTrimsStoredFileWhitespace(t *testing.T) {
 		t.Fatalf("s3 user key path: %v", err)
 	}
 	fs.files[secretPath] = []byte(validS3UserSecretKey + "\n")
+	fs.metadata[secretPath] = []Metadata{{Name: AVUSecretAttribute, Value: "test1"}}
 
 	retrieved, err := service.GetS3UserKey(testS3UserAccount())
 	if err != nil {
@@ -201,6 +210,7 @@ func testS3UserAccount() *irodstypes.IRODSAccount {
 type testUserKeyFilesystem struct {
 	collections     map[string]struct{}
 	files           map[string][]byte
+	metadata        map[string][]Metadata
 	createCalls     int
 	lastDeleteForce bool
 }
@@ -209,6 +219,7 @@ func newTestUserKeyFilesystem() *testUserKeyFilesystem {
 	return &testUserKeyFilesystem{
 		collections: map[string]struct{}{},
 		files:       map[string][]byte{},
+		metadata:    map[string][]Metadata{},
 	}
 }
 
@@ -248,6 +259,37 @@ func (fs *testUserKeyFilesystem) DeleteDataObject(dataObjectPath string, force b
 		return errors.New("data object not found")
 	}
 	delete(fs.files, dataObjectPath)
+	delete(fs.metadata, dataObjectPath)
 	fs.lastDeleteForce = force
+	return nil
+}
+
+func (fs *testUserKeyFilesystem) ListDataObjectMetadata(dataObjectPath string) ([]Metadata, error) {
+	dataObjectPath = path.Clean(dataObjectPath)
+	metadata := fs.metadata[dataObjectPath]
+	result := make([]Metadata, len(metadata))
+	copy(result, metadata)
+	return result, nil
+}
+
+func (fs *testUserKeyFilesystem) AddDataObjectMetadata(dataObjectPath string, metadata Metadata) error {
+	dataObjectPath = path.Clean(dataObjectPath)
+	fs.metadata[dataObjectPath] = append(fs.metadata[dataObjectPath], metadata)
+	return nil
+}
+
+func (fs *testUserKeyFilesystem) DeleteDataObjectMetadata(dataObjectPath string, metadata Metadata) error {
+	dataObjectPath = path.Clean(dataObjectPath)
+	current := fs.metadata[dataObjectPath]
+	next := make([]Metadata, 0, len(current))
+	removed := false
+	for _, avu := range current {
+		if !removed && avu == metadata {
+			removed = true
+			continue
+		}
+		next = append(next, avu)
+	}
+	fs.metadata[dataObjectPath] = next
 	return nil
 }

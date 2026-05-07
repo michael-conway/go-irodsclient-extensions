@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"path"
 	"regexp"
 	"strings"
 
@@ -22,13 +23,19 @@ const (
 	S3UserKeyFileName = "irods-s3-api-secret.txt"
 	// S3UserSecretKeyLength is the required length for S3 API user secrets.
 	S3UserSecretKeyLength = 40
+	// AVUSecretAttribute marks an iRODS S3 API secret key data object.
+	AVUSecretAttribute = "iRODS:S3:Secret"
 )
 
 var (
-	ErrMissingAccount        = errors.New("missing account")
-	ErrInvalidUserAccount    = errors.New("invalid user account")
-	ErrInvalidUserSecretKey  = errors.New("invalid s3 user secret key")
-	ErrMissingUserKeyService = errors.New("missing s3 user key service")
+	ErrMissingAccount                = errors.New("missing account")
+	ErrInvalidUserAccount            = errors.New("invalid user account")
+	ErrInvalidUserID                 = errors.New("invalid user id")
+	ErrInvalidUserSecretKey          = errors.New("invalid s3 user secret key")
+	ErrMissingUserKeyService         = errors.New("missing s3 user key service")
+	ErrUserSecretMarkerNotFound      = errors.New("s3 user secret marker not found")
+	ErrDuplicateUserSecretMarker     = errors.New("duplicate s3 user secret marker")
+	ErrInvalidUserSecretKeyIRODSPath = errors.New("invalid s3 user secret key irods path")
 )
 
 const s3UserSecretKeyAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/+.-_~"
@@ -36,7 +43,12 @@ const s3UserSecretKeyAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTU
 var s3UserSecretKeyPattern = regexp.MustCompile(`^[A-Za-z0-9/+._~-]{40}$`)
 
 // UserKeyFilesystem is the iRODS API surface needed by S3UserKeyService.
-type UserKeyFilesystem = userpersist.FileFilesystem
+type UserKeyFilesystem interface {
+	userpersist.FileFilesystem
+	ListDataObjectMetadata(dataObjectPath string) ([]Metadata, error)
+	AddDataObjectMetadata(dataObjectPath string, metadata Metadata) error
+	DeleteDataObjectMetadata(dataObjectPath string, metadata Metadata) error
+}
 
 // S3UserKey describes a user's managed iRODS S3 API secret key.
 type S3UserKey struct {
@@ -66,7 +78,8 @@ func (err *InvalidUserSecretKeyError) Unwrap() error {
 
 // S3UserKeyService manages per-user iRODS S3 API secret key files.
 type S3UserKeyService struct {
-	files *userpersist.FileService
+	filesystem UserKeyFilesystem
+	files      *userpersist.FileService
 }
 
 func NewS3UserKeyService(filesystem UserKeyFilesystem) (*S3UserKeyService, error) {
@@ -74,7 +87,10 @@ func NewS3UserKeyService(filesystem UserKeyFilesystem) (*S3UserKeyService, error
 	if err != nil {
 		return nil, err
 	}
-	return &S3UserKeyService{files: files}, nil
+	return &S3UserKeyService{
+		filesystem: filesystem,
+		files:      files,
+	}, nil
 }
 
 // GenerateS3UserSecretKey generates a secret key that satisfies the iRODS S3 API
@@ -153,8 +169,12 @@ func (service *S3UserKeyService) StoreS3UserKey(account *irodstypes.IRODSAccount
 	if err != nil {
 		return S3UserKey{}, err
 	}
+	userID, err := s3UserIDFromAccount(account)
+	if err != nil {
+		return S3UserKey{}, err
+	}
 
-	userKey, err := service.StoreS3UserKeyForHome(userHomePath, secretKey)
+	userKey, err := service.StoreS3UserKeyForHomeAndUser(userHomePath, userID, secretKey)
 	if err != nil {
 		return S3UserKey{}, err
 	}
@@ -166,8 +186,18 @@ func (service *S3UserKeyService) StoreS3UserKey(account *irodstypes.IRODSAccount
 // StoreS3UserKeyForHome stores or replaces the S3 API secret key for an explicit
 // user home collection path.
 func (service *S3UserKeyService) StoreS3UserKeyForHome(userHomePath string, secretKey string) (S3UserKey, error) {
+	return service.StoreS3UserKeyForHomeAndUser(userHomePath, userIDFromHomePath(userHomePath), secretKey)
+}
+
+// StoreS3UserKeyForHomeAndUser stores or replaces the S3 API secret key for an
+// explicit user home collection path and marker user ID.
+func (service *S3UserKeyService) StoreS3UserKeyForHomeAndUser(userHomePath string, userID string, secretKey string) (S3UserKey, error) {
 	if err := ValidateS3UserSecretKey(secretKey); err != nil {
 		return S3UserKey{}, err
+	}
+	userID = normalizeUserID(userID)
+	if userID == "" {
+		return S3UserKey{}, ErrInvalidUserID
 	}
 
 	files, err := service.requireUserFileService()
@@ -180,7 +210,12 @@ func (service *S3UserKeyService) StoreS3UserKeyForHome(userHomePath string, secr
 		return S3UserKey{}, fmt.Errorf("store s3 user secret key: %w", err)
 	}
 
+	if err := service.replaceSecretMarkerAVUs(file.IRODSPath, userID); err != nil {
+		return S3UserKey{}, err
+	}
+
 	return S3UserKey{
+		UserName:     userID,
 		UserHomePath: userHomePath,
 		IRODSPath:    file.IRODSPath,
 		SecretKey:    secretKey,
@@ -200,11 +235,18 @@ func (service *S3UserKeyService) GenerateAndStoreS3UserKey(account *irodstypes.I
 // GenerateAndStoreS3UserKeyForHome generates, stores, and returns a new S3 API
 // secret key for an explicit user home collection path.
 func (service *S3UserKeyService) GenerateAndStoreS3UserKeyForHome(userHomePath string) (S3UserKey, error) {
+	return service.GenerateAndStoreS3UserKeyForHomeAndUser(userHomePath, userIDFromHomePath(userHomePath))
+}
+
+// GenerateAndStoreS3UserKeyForHomeAndUser generates, stores, and returns a new
+// S3 API secret key for an explicit user home collection path and marker user
+// ID.
+func (service *S3UserKeyService) GenerateAndStoreS3UserKeyForHomeAndUser(userHomePath string, userID string) (S3UserKey, error) {
 	secretKey, err := GenerateS3UserSecretKey()
 	if err != nil {
 		return S3UserKey{}, err
 	}
-	return service.StoreS3UserKeyForHome(userHomePath, secretKey)
+	return service.StoreS3UserKeyForHomeAndUser(userHomePath, userID, secretKey)
 }
 
 // DeleteS3UserKey removes the user's S3 API secret key file.
@@ -256,9 +298,51 @@ func (service *S3UserKeyService) GetS3UserKeyForHome(userHomePath string) (S3Use
 		return S3UserKey{}, fmt.Errorf("stored s3 user secret key %q: %w", file.IRODSPath, err)
 	}
 
+	userID, err := service.userIDForSecretKeyPath(file.IRODSPath)
+	if err != nil {
+		return S3UserKey{}, err
+	}
+
 	return S3UserKey{
+		UserName:     userID,
 		UserHomePath: userHomePath,
 		IRODSPath:    file.IRODSPath,
+		SecretKey:    secretKey,
+	}, nil
+}
+
+// GetS3UserKeyAtPath retrieves an S3 API secret key from an explicit iRODS data
+// object path and reads the marker AVU to identify the user.
+func (service *S3UserKeyService) GetS3UserKeyAtPath(secretPath string) (S3UserKey, error) {
+	filesystem, err := service.requireUserKeyFilesystem()
+	if err != nil {
+		return S3UserKey{}, err
+	}
+
+	secretPath = normalizeIRODSPath(secretPath)
+	if secretPath == "" {
+		return S3UserKey{}, ErrInvalidUserSecretKeyIRODSPath
+	}
+
+	contents, err := filesystem.ReadDataObject(secretPath)
+	if err != nil {
+		return S3UserKey{}, fmt.Errorf("read s3 user secret key %q: %w", secretPath, err)
+	}
+
+	secretKey := strings.TrimSpace(string(contents))
+	if err := ValidateS3UserSecretKey(secretKey); err != nil {
+		return S3UserKey{}, fmt.Errorf("stored s3 user secret key %q: %w", secretPath, err)
+	}
+
+	userID, err := service.userIDForSecretKeyPath(secretPath)
+	if err != nil {
+		return S3UserKey{}, err
+	}
+
+	return S3UserKey{
+		UserName:     userID,
+		UserHomePath: userHomePathFromSecretKeyPath(secretPath),
+		IRODSPath:    secretPath,
 		SecretKey:    secretKey,
 	}, nil
 }
@@ -280,6 +364,84 @@ func (service *S3UserKeyService) deleteS3UserKeyForHome(userHomePath string) err
 	return nil
 }
 
+func (service *S3UserKeyService) replaceSecretMarkerAVUs(secretPath string, userID string) error {
+	filesystem, err := service.requireUserKeyFilesystem()
+	if err != nil {
+		return err
+	}
+
+	secretPath = normalizeIRODSPath(secretPath)
+	if secretPath == "" {
+		return ErrInvalidUserSecretKeyIRODSPath
+	}
+
+	markers, err := service.secretMarkerAVUs(secretPath)
+	if err != nil {
+		return err
+	}
+	for _, marker := range markers {
+		if err := filesystem.DeleteDataObjectMetadata(secretPath, marker); err != nil {
+			return fmt.Errorf("delete existing s3 secret marker from %q: %w", secretPath, err)
+		}
+	}
+
+	if err := filesystem.AddDataObjectMetadata(secretPath, Metadata{
+		Name:  AVUSecretAttribute,
+		Value: userID,
+	}); err != nil {
+		return fmt.Errorf("add s3 secret marker to %q: %w", secretPath, err)
+	}
+	return nil
+}
+
+func (service *S3UserKeyService) userIDForSecretKeyPath(secretPath string) (string, error) {
+	markers, err := service.secretMarkerAVUs(secretPath)
+	if err != nil {
+		return "", err
+	}
+	if len(markers) == 0 {
+		return "", ErrUserSecretMarkerNotFound
+	}
+
+	userIDs := map[string]struct{}{}
+	for _, marker := range markers {
+		userID := normalizeUserID(marker.Value)
+		if userID != "" {
+			userIDs[userID] = struct{}{}
+		}
+	}
+	if len(userIDs) == 0 {
+		return "", ErrUserSecretMarkerNotFound
+	}
+	if len(userIDs) > 1 {
+		return "", ErrDuplicateUserSecretMarker
+	}
+	for userID := range userIDs {
+		return userID, nil
+	}
+	return "", ErrUserSecretMarkerNotFound
+}
+
+func (service *S3UserKeyService) secretMarkerAVUs(secretPath string) ([]Metadata, error) {
+	filesystem, err := service.requireUserKeyFilesystem()
+	if err != nil {
+		return nil, err
+	}
+
+	metadata, err := filesystem.ListDataObjectMetadata(secretPath)
+	if err != nil {
+		return nil, fmt.Errorf("list s3 user secret marker metadata for %q: %w", secretPath, err)
+	}
+
+	markers := make([]Metadata, 0)
+	for _, avu := range metadata {
+		if avu.Name == AVUSecretAttribute {
+			markers = append(markers, avu)
+		}
+	}
+	return markers, nil
+}
+
 func (service *S3UserKeyService) requireUserFileService() (*userpersist.FileService, error) {
 	if service == nil {
 		return nil, ErrMissingUserKeyService
@@ -288,6 +450,16 @@ func (service *S3UserKeyService) requireUserFileService() (*userpersist.FileServ
 		return nil, ErrMissingFilesystem
 	}
 	return service.files, nil
+}
+
+func (service *S3UserKeyService) requireUserKeyFilesystem() (UserKeyFilesystem, error) {
+	if service == nil {
+		return nil, ErrMissingUserKeyService
+	}
+	if service.filesystem == nil {
+		return nil, ErrMissingFilesystem
+	}
+	return service.filesystem, nil
 }
 
 func s3UserHomePath(account *irodstypes.IRODSAccount) (string, error) {
@@ -303,4 +475,46 @@ func s3UserHomePath(account *irodstypes.IRODSAccount) (string, error) {
 		return "", ErrInvalidUserAccount
 	}
 	return userHomePath, nil
+}
+
+func s3UserIDFromAccount(account *irodstypes.IRODSAccount) (string, error) {
+	if account == nil {
+		return "", ErrMissingAccount
+	}
+	userID := normalizeUserID(account.ClientUser)
+	if userID == "" {
+		return "", ErrInvalidUserID
+	}
+	return userID, nil
+}
+
+func normalizeUserID(userID string) string {
+	return strings.TrimSpace(userID)
+}
+
+func userIDFromHomePath(userHomePath string) string {
+	userHomePath = normalizeIRODSPath(userHomePath)
+	if userHomePath == "" {
+		return ""
+	}
+	return normalizeUserID(path.Base(userHomePath))
+}
+
+func userHomePathFromSecretKeyPath(secretPath string) string {
+	secretPath = normalizeIRODSPath(secretPath)
+	if secretPath == "" || path.Base(secretPath) != S3UserKeyFileName {
+		return ""
+	}
+
+	categoryPath := path.Dir(secretPath)
+	if path.Base(categoryPath) != S3UserKeyContext {
+		return ""
+	}
+
+	rootPath := path.Dir(categoryPath)
+	if path.Base(rootPath) != userpersist.RootCollectionName {
+		return ""
+	}
+
+	return path.Dir(rootPath)
 }

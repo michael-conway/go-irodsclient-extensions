@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 )
 
 func TestAddBucketWritesAVUAndMappingFile(t *testing.T) {
@@ -380,6 +382,152 @@ func TestRefreshMappingFallsBackToKnownMappingBucketNames(t *testing.T) {
 	}
 }
 
+func TestStoreUserSecretKeyWritesMarkerAndUserMappingFile(t *testing.T) {
+	fs := newTestFilesystem()
+	service := newUserMappingTestService(t, fs)
+	account := testS3AdminAccount("test1")
+
+	userMapping, err := service.StoreUserSecretKey(account, validS3UserSecretKey)
+	if err != nil {
+		t.Fatalf("store user secret key: %v", err)
+	}
+
+	expectedSecretPath := "/tempZone/home/test1/.irodsext/s3admin/irods-s3-api-secret.txt"
+	if userMapping.UserID != "test1" || userMapping.Username != "test1" || userMapping.SecretKey != validS3UserSecretKey || userMapping.IRODSPath != expectedSecretPath {
+		t.Fatalf("unexpected user mapping %+v", userMapping)
+	}
+	if got := string(fs.files[expectedSecretPath]); got != validS3UserSecretKey {
+		t.Fatalf("expected stored secret %q, got %q", validS3UserSecretKey, got)
+	}
+	metadata := fs.metadata[expectedSecretPath]
+	if len(metadata) != 1 || metadata[0].Name != AVUSecretAttribute || metadata[0].Value != "test1" {
+		t.Fatalf("expected secret marker AVU for test1, got %+v", metadata)
+	}
+
+	mapping := readUserMappingFile(t, service.UserMappingFilePath())
+	entry := mapping["test1"]
+	if entry.SecretKey != validS3UserSecretKey || entry.Username != "test1" {
+		t.Fatalf("expected test1 mapping, got %+v in %+v", entry, mapping)
+	}
+}
+
+func TestUpdateUserSecretKeyReplacesSecretMarkerAndMapping(t *testing.T) {
+	fs := newTestFilesystem()
+	service := newUserMappingTestService(t, fs)
+	account := testS3AdminAccount("test1")
+	updatedKey := strings.Repeat("Z", S3UserSecretKeyLength)
+
+	if _, err := service.StoreUserSecretKey(account, validS3UserSecretKey); err != nil {
+		t.Fatalf("store initial key: %v", err)
+	}
+	if _, err := service.UpdateUserSecretKey(account, updatedKey); err != nil {
+		t.Fatalf("update key: %v", err)
+	}
+
+	secretPath := "/tempZone/home/test1/.irodsext/s3admin/irods-s3-api-secret.txt"
+	if got := string(fs.files[secretPath]); got != updatedKey {
+		t.Fatalf("expected updated secret %q, got %q", updatedKey, got)
+	}
+	metadata := fs.metadata[secretPath]
+	if len(metadata) != 1 || metadata[0].Name != AVUSecretAttribute || metadata[0].Value != "test1" {
+		t.Fatalf("expected single replacement marker AVU, got %+v", metadata)
+	}
+
+	mapping := readUserMappingFile(t, service.UserMappingFilePath())
+	entry := mapping["test1"]
+	if entry.SecretKey != updatedKey || entry.Username != "test1" {
+		t.Fatalf("expected updated mapping, got %+v in %+v", entry, mapping)
+	}
+}
+
+func TestGenerateAndDeleteUserSecretKeyUpdatesUserMappingFile(t *testing.T) {
+	fs := newTestFilesystem()
+	service := newUserMappingTestService(t, fs)
+	account := testS3AdminAccount("test1")
+
+	userMapping, err := service.GenerateAndStoreUserSecretKey(account)
+	if err != nil {
+		t.Fatalf("generate and store key: %v", err)
+	}
+	if err := ValidateS3UserSecretKey(userMapping.SecretKey); err != nil {
+		t.Fatalf("generated key invalid: %v", err)
+	}
+
+	mapping := readUserMappingFile(t, service.UserMappingFilePath())
+	if mapping["test1"].SecretKey != userMapping.SecretKey {
+		t.Fatalf("expected generated key in mapping, got %+v", mapping)
+	}
+
+	if err := service.DeleteUserSecretKey(account); err != nil {
+		t.Fatalf("delete key: %v", err)
+	}
+
+	mapping = readUserMappingFile(t, service.UserMappingFilePath())
+	if _, ok := mapping["test1"]; ok {
+		t.Fatalf("expected deleted user to be removed from mapping, got %+v", mapping)
+	}
+	if _, ok := fs.files[userMapping.IRODSPath]; ok {
+		t.Fatalf("expected secret file to be deleted")
+	}
+}
+
+func TestRebuildUserMappingFromAVUsUsesMarkedSecretsAsSourceOfTruth(t *testing.T) {
+	fs := newTestFilesystem()
+	service := newUserMappingTestService(t, fs)
+	keyService, err := NewS3UserKeyService(fs)
+	if err != nil {
+		t.Fatalf("new user key service: %v", err)
+	}
+
+	if _, err := keyService.StoreS3UserKey(testS3AdminAccount("test1"), validS3UserSecretKey); err != nil {
+		t.Fatalf("store test1 key: %v", err)
+	}
+	test2Key := strings.Repeat("Y", S3UserSecretKeyLength)
+	if _, err := keyService.StoreS3UserKey(testS3AdminAccount("test2"), test2Key); err != nil {
+		t.Fatalf("store test2 key: %v", err)
+	}
+	if err := os.WriteFile(service.UserMappingFilePath(), []byte(`{"stale":{"secret_key":"stale","username":"stale"}}`), 0o644); err != nil {
+		t.Fatalf("write stale user mapping: %v", err)
+	}
+
+	result, err := service.RebuildUserMappingFromAVUs()
+	if err != nil {
+		t.Fatalf("rebuild user mapping: %v", err)
+	}
+	if result.MappingFilePath != service.UserMappingFilePath() {
+		t.Fatalf("expected mapping file path %q, got %q", service.UserMappingFilePath(), result.MappingFilePath)
+	}
+	if len(result.Users) != 2 {
+		t.Fatalf("expected 2 rebuilt users, got %+v", result.Users)
+	}
+
+	mapping := readUserMappingFile(t, service.UserMappingFilePath())
+	if len(mapping) != 2 || mapping["test1"].SecretKey != validS3UserSecretKey || mapping["test2"].SecretKey != test2Key {
+		t.Fatalf("expected rebuilt user mapping, got %+v", mapping)
+	}
+	if !fs.wasSearched(AVUSecretAttribute, metadataValueWildcard) {
+		t.Fatalf("expected marker metadata search, got %+v", fs.searches)
+	}
+}
+
+func TestRebuildUserMappingRejectsDuplicateMarkedUser(t *testing.T) {
+	fs := newTestFilesystem()
+	service := newUserMappingTestService(t, fs)
+	firstPath := "/tempZone/home/test1/.irodsext/s3admin/irods-s3-api-secret.txt"
+	secondPath := "/tempZone/home/test1/other/.irodsext/s3admin/irods-s3-api-secret.txt"
+	fs.objects[firstPath] = struct{}{}
+	fs.objects[secondPath] = struct{}{}
+	fs.files[firstPath] = []byte(validS3UserSecretKey)
+	fs.files[secondPath] = []byte(strings.Repeat("Y", S3UserSecretKeyLength))
+	fs.metadata[firstPath] = []Metadata{{Name: AVUSecretAttribute, Value: "test1"}}
+	fs.metadata[secondPath] = []Metadata{{Name: AVUSecretAttribute, Value: "test1"}}
+
+	_, err := service.RebuildUserMappingFromAVUs()
+	if !errors.Is(err, ErrDuplicateUserMapping) {
+		t.Fatalf("expected duplicate user mapping error, got %v", err)
+	}
+}
+
 func TestValidation(t *testing.T) {
 	fs := newTestFilesystem()
 	fs.addCollection("/tempZone/home")
@@ -456,6 +604,16 @@ func newTestService(t *testing.T, fs *testFilesystem) *S3Service {
 	return service
 }
 
+func newUserMappingTestService(t *testing.T, fs *testFilesystem) *S3UserMappingService {
+	t.Helper()
+
+	service, err := NewS3UserMappingService(fs, path.Join(t.TempDir(), "user-mapping.json"))
+	if err != nil {
+		t.Fatalf("new user mapping service: %v", err)
+	}
+	return service
+}
+
 func readMappingFile(t *testing.T, mappingPath string) map[string]string {
 	t.Helper()
 
@@ -471,6 +629,28 @@ func readMappingFile(t *testing.T, mappingPath string) map[string]string {
 	return mapping
 }
 
+func readUserMappingFile(t *testing.T, mappingPath string) map[string]UserMappingEntry {
+	t.Helper()
+
+	data, err := os.ReadFile(mappingPath)
+	if err != nil {
+		t.Fatalf("read user mapping file: %v", err)
+	}
+
+	mapping := map[string]UserMappingEntry{}
+	if err := json.Unmarshal(data, &mapping); err != nil {
+		t.Fatalf("decode user mapping file: %v", err)
+	}
+	return mapping
+}
+
+func testS3AdminAccount(username string) *irodstypes.IRODSAccount {
+	return &irodstypes.IRODSAccount{
+		ClientUser: username,
+		ClientZone: "tempZone",
+	}
+}
+
 func bucketNames(buckets []Bucket) string {
 	names := make([]string, 0, len(buckets))
 	for _, bucket := range buckets {
@@ -483,6 +663,7 @@ func bucketNames(buckets []Bucket) string {
 type testFilesystem struct {
 	collections map[string]struct{}
 	objects     map[string]struct{}
+	files       map[string][]byte
 	metadata    map[string][]Metadata
 	searches    []metadataSearch
 
@@ -493,6 +674,7 @@ func newTestFilesystem() *testFilesystem {
 	return &testFilesystem{
 		collections: map[string]struct{}{},
 		objects:     map[string]struct{}{},
+		files:       map[string][]byte{},
 		metadata:    map[string][]Metadata{},
 	}
 }
@@ -504,6 +686,14 @@ func (fs *testFilesystem) addCollection(irodsPath string) {
 func (fs *testFilesystem) CollectionExists(irodsPath string) (bool, error) {
 	_, ok := fs.collections[path.Clean(irodsPath)]
 	return ok, nil
+}
+
+func (fs *testFilesystem) CreateCollection(irodsPath string, recurse bool) error {
+	if fs.collections == nil {
+		fs.collections = map[string]struct{}{}
+	}
+	fs.collections[path.Clean(irodsPath)] = struct{}{}
+	return nil
 }
 
 func (fs *testFilesystem) SearchByMeta(metaName string, metaValue string) ([]Entry, error) {
@@ -584,6 +774,69 @@ func (fs *testFilesystem) DeleteCollectionMetadata(collectionPath string, metada
 		next = append(next, avu)
 	}
 	fs.metadata[collectionPath] = next
+	return nil
+}
+
+func (fs *testFilesystem) ReadDataObject(dataObjectPath string) ([]byte, error) {
+	dataObjectPath = path.Clean(dataObjectPath)
+	contents, ok := fs.files[dataObjectPath]
+	if !ok {
+		return nil, errors.New("data object not found")
+	}
+	return append([]byte(nil), contents...), nil
+}
+
+func (fs *testFilesystem) WriteDataObject(dataObjectPath string, contents []byte) error {
+	dataObjectPath = path.Clean(dataObjectPath)
+	if fs.objects == nil {
+		fs.objects = map[string]struct{}{}
+	}
+	if fs.files == nil {
+		fs.files = map[string][]byte{}
+	}
+	fs.objects[dataObjectPath] = struct{}{}
+	fs.files[dataObjectPath] = append([]byte(nil), contents...)
+	return nil
+}
+
+func (fs *testFilesystem) DeleteDataObject(dataObjectPath string, force bool) error {
+	dataObjectPath = path.Clean(dataObjectPath)
+	if _, ok := fs.objects[dataObjectPath]; !ok {
+		return errors.New("data object not found")
+	}
+	delete(fs.objects, dataObjectPath)
+	delete(fs.files, dataObjectPath)
+	delete(fs.metadata, dataObjectPath)
+	return nil
+}
+
+func (fs *testFilesystem) ListDataObjectMetadata(dataObjectPath string) ([]Metadata, error) {
+	dataObjectPath = path.Clean(dataObjectPath)
+	metadata := fs.metadata[dataObjectPath]
+	result := make([]Metadata, len(metadata))
+	copy(result, metadata)
+	return result, nil
+}
+
+func (fs *testFilesystem) AddDataObjectMetadata(dataObjectPath string, metadata Metadata) error {
+	dataObjectPath = path.Clean(dataObjectPath)
+	fs.metadata[dataObjectPath] = append(fs.metadata[dataObjectPath], metadata)
+	return nil
+}
+
+func (fs *testFilesystem) DeleteDataObjectMetadata(dataObjectPath string, metadata Metadata) error {
+	dataObjectPath = path.Clean(dataObjectPath)
+	current := fs.metadata[dataObjectPath]
+	next := make([]Metadata, 0, len(current))
+	removed := false
+	for _, avu := range current {
+		if !removed && avu == metadata {
+			removed = true
+			continue
+		}
+		next = append(next, avu)
+	}
+	fs.metadata[dataObjectPath] = next
 	return nil
 }
 

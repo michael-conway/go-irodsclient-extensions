@@ -144,13 +144,19 @@ func TestS3AdminUserKeyLifecycleIntegration(t *testing.T) {
 		_ = filesystem.RemoveDir(fixtureHome, true, true)
 	})
 
-	service, err := s3admin.NewS3UserKeyService(&irodsS3AdminFilesystem{filesystem: filesystem})
+	adapter := &irodsS3AdminFilesystem{filesystem: filesystem}
+	keyService, err := s3admin.NewS3UserKeyService(adapter)
 	if err != nil {
 		t.Fatalf("create s3 user key service: %v", err)
 	}
+	mappingService, err := s3admin.NewS3UserMappingService(adapter, path.Join(t.TempDir(), "irods-s3-user-mapping.json"))
+	if err != nil {
+		t.Fatalf("create s3 user mapping service: %v", err)
+	}
+	userID := "goext-" + xid.New().String()
 
 	expectedSecretPath := path.Join(fixtureHome, ".irodsext", s3admin.S3UserKeyContext, s3admin.S3UserKeyFileName)
-	ensuredPath, err := service.EnsureS3UserKeyStructureForHome(fixtureHome)
+	ensuredPath, err := keyService.EnsureS3UserKeyStructureForHome(fixtureHome)
 	if err != nil {
 		t.Fatalf("ensure s3 user key structure: %v", err)
 	}
@@ -165,7 +171,7 @@ func TestS3AdminUserKeyLifecycleIntegration(t *testing.T) {
 	}
 
 	initialKey := "Aa1Bb~2Cc3.-Dd4Ee5Ff6Gg7Hh8Ii9_Jj0Kk1Ll2"
-	stored, err := service.StoreS3UserKeyForHome(fixtureHome, initialKey)
+	stored, err := mappingService.StoreUserSecretKeyForHomeAndUser(fixtureHome, userID, initialKey)
 	if err != nil {
 		t.Fatalf("store s3 user key: %v", err)
 	}
@@ -175,8 +181,12 @@ func TestS3AdminUserKeyLifecycleIntegration(t *testing.T) {
 	if stored.SecretKey != initialKey {
 		t.Fatalf("expected stored secret key %q, got %q", initialKey, stored.SecretKey)
 	}
+	userMapping := readS3AdminUserMapping(t, mappingService.UserMappingFilePath())
+	if userMapping[userID].SecretKey != initialKey || userMapping[userID].Username != userID {
+		t.Fatalf("expected stored key in user mapping file, got %+v", userMapping)
+	}
 
-	retrieved, err := service.GetS3UserKeyForHome(fixtureHome)
+	retrieved, err := mappingService.GetUserSecretKeyForHome(fixtureHome, userID)
 	if err != nil {
 		t.Fatalf("retrieve s3 user key: %v", err)
 	}
@@ -185,19 +195,23 @@ func TestS3AdminUserKeyLifecycleIntegration(t *testing.T) {
 	}
 
 	updatedKey := strings.Repeat("Z", s3admin.S3UserSecretKeyLength)
-	updated, err := service.StoreS3UserKeyForHome(fixtureHome, updatedKey)
+	updated, err := mappingService.UpdateUserSecretKeyForHomeAndUser(fixtureHome, userID, updatedKey)
 	if err != nil {
 		t.Fatalf("update s3 user key: %v", err)
 	}
 	if updated.SecretKey != updatedKey {
 		t.Fatalf("expected updated secret key %q, got %q", updatedKey, updated.SecretKey)
 	}
+	userMapping = readS3AdminUserMapping(t, mappingService.UserMappingFilePath())
+	if userMapping[userID].SecretKey != updatedKey || userMapping[userID].Username != userID {
+		t.Fatalf("expected updated key in user mapping file, got %+v", userMapping)
+	}
 
-	if _, err := service.StoreS3UserKeyForHome(fixtureHome, "short"); !errors.Is(err, s3admin.ErrInvalidUserSecretKey) {
+	if _, err := mappingService.StoreUserSecretKeyForHomeAndUser(fixtureHome, userID, "short"); !errors.Is(err, s3admin.ErrInvalidUserSecretKey) {
 		t.Fatalf("expected invalid user secret key error, got %v", err)
 	}
 
-	retrievedAfterInvalid, err := service.GetS3UserKeyForHome(fixtureHome)
+	retrievedAfterInvalid, err := mappingService.GetUserSecretKeyForHome(fixtureHome, userID)
 	if err != nil {
 		t.Fatalf("retrieve s3 user key after invalid store: %v", err)
 	}
@@ -205,7 +219,7 @@ func TestS3AdminUserKeyLifecycleIntegration(t *testing.T) {
 		t.Fatalf("expected invalid store to leave key %q, got %q", updatedKey, retrievedAfterInvalid.SecretKey)
 	}
 
-	generated, err := service.GenerateAndStoreS3UserKeyForHome(fixtureHome)
+	generated, err := mappingService.GenerateAndStoreUserSecretKeyForHomeAndUser(fixtureHome, userID)
 	if err != nil {
 		t.Fatalf("generate and store s3 user key: %v", err)
 	}
@@ -213,19 +227,34 @@ func TestS3AdminUserKeyLifecycleIntegration(t *testing.T) {
 		t.Fatalf("generated secret key was invalid: %v", err)
 	}
 
-	retrievedGenerated, err := service.GetS3UserKeyForHome(fixtureHome)
+	retrievedGenerated, err := mappingService.GetUserSecretKeyForHome(fixtureHome, userID)
 	if err != nil {
 		t.Fatalf("retrieve generated s3 user key: %v", err)
 	}
 	if retrievedGenerated.SecretKey != generated.SecretKey {
 		t.Fatalf("expected generated key %q, got %q", generated.SecretKey, retrievedGenerated.SecretKey)
 	}
+	rebuildResult, err := mappingService.RebuildUserMappingFromAVUs()
+	if err != nil {
+		t.Fatalf("rebuild user mapping from AVUs: %v", err)
+	}
+	rebuiltByUserID := map[string]s3admin.S3UserMapping{}
+	for _, user := range rebuildResult.Users {
+		rebuiltByUserID[user.UserID] = user
+	}
+	if rebuiltByUserID[userID].SecretKey != generated.SecretKey {
+		t.Fatalf("expected rebuilt user mapping for %q, got %+v", userID, rebuildResult.Users)
+	}
 
-	if err := service.DeleteS3UserKeyForHome(fixtureHome); err != nil {
+	if err := mappingService.DeleteUserSecretKeyForHomeAndUser(fixtureHome, userID); err != nil {
 		t.Fatalf("delete s3 user key: %v", err)
 	}
 	if filesystem.ExistsFile(expectedSecretPath) {
 		t.Fatalf("expected deleted secret key file %q to be absent", expectedSecretPath)
+	}
+	userMapping = readS3AdminUserMapping(t, mappingService.UserMappingFilePath())
+	if _, ok := userMapping[userID]; ok {
+		t.Fatalf("expected deleted key to be removed from user mapping, got %+v", userMapping)
 	}
 }
 
@@ -266,6 +295,21 @@ func assertS3AdminMapping(t *testing.T, mappingPath string, expected map[string]
 			t.Fatalf("expected mapping %q -> %q, got %q in %s", bucketName, expectedPath, actual[bucketName], formatS3AdminMapping(actual))
 		}
 	}
+}
+
+func readS3AdminUserMapping(t *testing.T, mappingPath string) map[string]s3admin.UserMappingEntry {
+	t.Helper()
+
+	content, err := os.ReadFile(mappingPath)
+	if err != nil {
+		t.Fatalf("read user mapping file %q: %v", mappingPath, err)
+	}
+
+	actual := map[string]s3admin.UserMappingEntry{}
+	if err := json.Unmarshal(content, &actual); err != nil {
+		t.Fatalf("decode user mapping file %q: %v", mappingPath, err)
+	}
+	return actual
 }
 
 func assertS3AdminBuckets(t *testing.T, buckets []s3admin.Bucket, expected map[string]string) {
@@ -339,6 +383,7 @@ func (filesystem *irodsS3AdminFilesystem) DeleteDataObject(dataObjectPath string
 	return filesystem.filesystem.RemoveFile(dataObjectPath, force)
 }
 
+// TODO://optimize avu query
 func (filesystem *irodsS3AdminFilesystem) SearchByMeta(metaName string, metaValue string) ([]s3admin.Entry, error) {
 	if strings.ContainsAny(metaValue, "%_") {
 		return filesystem.searchCollectionsByMetaWildcard(metaName, metaValue)
@@ -368,6 +413,7 @@ func (filesystem *irodsS3AdminFilesystem) SearchByMeta(metaName string, metaValu
 	return result, nil
 }
 
+// TODO://optimize avu query
 func (filesystem *irodsS3AdminFilesystem) searchCollectionsByMetaWildcard(metaName string, metaValue string) ([]s3admin.Entry, error) {
 	conn, err := filesystem.filesystem.GetMetadataConnection(true)
 	if err != nil {
@@ -413,10 +459,38 @@ func (filesystem *irodsS3AdminFilesystem) ListCollectionMetadata(collectionPath 
 	return result, nil
 }
 
+func (filesystem *irodsS3AdminFilesystem) ListDataObjectMetadata(dataObjectPath string) ([]s3admin.Metadata, error) {
+	metadata, err := filesystem.filesystem.ListMetadata(dataObjectPath)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]s3admin.Metadata, 0, len(metadata))
+	for _, avu := range metadata {
+		if avu == nil {
+			continue
+		}
+		result = append(result, s3admin.Metadata{
+			Name:  avu.Name,
+			Value: avu.Value,
+			Units: avu.Units,
+		})
+	}
+	return result, nil
+}
+
 func (filesystem *irodsS3AdminFilesystem) AddCollectionMetadata(collectionPath string, metadata s3admin.Metadata) error {
 	return filesystem.filesystem.AddMetadata(collectionPath, metadata.Name, metadata.Value, metadata.Units)
 }
 
 func (filesystem *irodsS3AdminFilesystem) DeleteCollectionMetadata(collectionPath string, metadata s3admin.Metadata) error {
 	return filesystem.filesystem.DeleteMetadataByAVU(collectionPath, metadata.Name, metadata.Value, metadata.Units)
+}
+
+func (filesystem *irodsS3AdminFilesystem) AddDataObjectMetadata(dataObjectPath string, metadata s3admin.Metadata) error {
+	return filesystem.filesystem.AddMetadata(dataObjectPath, metadata.Name, metadata.Value, metadata.Units)
+}
+
+func (filesystem *irodsS3AdminFilesystem) DeleteDataObjectMetadata(dataObjectPath string, metadata s3admin.Metadata) error {
+	return filesystem.filesystem.DeleteMetadataByAVU(dataObjectPath, metadata.Name, metadata.Value, metadata.Units)
 }
