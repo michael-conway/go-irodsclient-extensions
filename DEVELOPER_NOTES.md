@@ -94,3 +94,21 @@ Tests should default to the configured primary and secondary test users rather t
 - Keep public APIs small and explicit.
 - Prefer deterministic helpers that are easy to test in isolation.
 - When adding live-test support, add a unit-tested config path first.
+
+## Local multi-repo sync (`go.work`)
+
+Use a workspace `go.work` file for local cross-repo development instead of
+`replace ../...` directives in `go.mod`.
+
+Current workspace scaffold (at `workspace-gabble/go.work`) includes:
+
+- `./go-irodsclient-extensions`
+- `./irods-go-rest`
+- `./irods-go-drs`
+
+Workflow:
+
+1. develop across repos with `go.work` active
+2. keep each repo `go.mod` pinned to real module versions (no local replace)
+3. when shared changes are ready, push/tag in `go-irodsclient-extensions`
+4. bump dependent repos with `go get <module>@<tag-or-commit>` and `go mod tidy`
