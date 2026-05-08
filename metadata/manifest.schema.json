@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/michael-conway/go-irodsclient-extensions/metadata/manifest.schema.json",
+  "title": "iRODS Metadata Manifest",
+  "type": "object",
+  "required": [
+    "$schema",
+    "version",
+    "generated_at",
+    "irods_path",
+    "irods_uri",
+    "irods_host",
+    "irods_port",
+    "irods_zone",
+    "entry_type",
+    "entry",
+    "avus"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "irods_path": {
+      "type": "string"
+    },
+    "irods_uri": {
+      "type": "string"
+    },
+    "irods_host": {
+      "type": "string"
+    },
+    "irods_port": {
+      "type": "integer"
+    },
+    "irods_zone": {
+      "type": "string"
+    },
+    "entry_type": {
+      "type": "string",
+      "enum": [
+        "collection",
+        "data_object"
+      ]
+    },
+    "entry": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "path",
+        "owner",
+        "size",
+        "display_size"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer"
+        },
+        "display_size": {
+          "type": "string"
+        },
+        "data_type": {
+          "type": "string"
+        },
+        "create_time": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "modify_time": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "access_time": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "checksum_algorithm": {
+          "type": "string"
+        },
+        "checksum": {
+          "type": "string"
+        },
+        "replicas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "number"
+            ],
+            "properties": {
+              "number": {
+                "type": "integer"
+              },
+              "owner": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "resource_name": {
+                "type": "string"
+              },
+              "resource_hierarchy": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "create_time": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "modify_time": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "access_time": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "checksum_algorithm": {
+                "type": "string"
+              },
+              "checksum": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "avus": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "value"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "units": {
+            "type": "string"
+          },
+          "create_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modify_time": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

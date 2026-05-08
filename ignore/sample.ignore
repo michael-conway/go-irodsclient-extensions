@@ -1,0 +1,62 @@
+# sample.ignore
+# Gitignore-style ignore patterns for iRODS logical paths.
+#
+# Lines are evaluated top-to-bottom; the last matching rule wins.
+# Use ! to re-include paths.
+
+# ------------------------------------------------------------
+# Common generated artifacts
+# ------------------------------------------------------------
+*.tmp
+*.bak
+*.swp
+*~
+
+# Object/archive patterns anywhere under base path
+*.[oa]
+
+# ------------------------------------------------------------
+# Build and cache directories
+# ------------------------------------------------------------
+build/
+dist/
+.cache/
+
+# Ignore every log file
+*.log
+
+# Re-include one specific log file
+!important.log
+
+# ------------------------------------------------------------
+# Anchored patterns (relative to ignore base path)
+# ------------------------------------------------------------
+/hello.*
+/notes/private/
+
+# ------------------------------------------------------------
+# Recursive patterns with **
+# ------------------------------------------------------------
+# Match foo at any depth
+**/foo
+
+# Match everything under abc recursively
+abc/**
+
+# Match a/b, a/x/b, a/x/y/b, etc.
+a/**/b
+
+# ------------------------------------------------------------
+# Example: ignore everything except one subtree
+# ------------------------------------------------------------
+# /*
+# !/foo
+# /foo/*
+# !/foo/bar
+
+# ------------------------------------------------------------
+# Escaping special leading characters
+# ------------------------------------------------------------
+\#literal-file-name.txt
+\!literal-bang.txt
+
