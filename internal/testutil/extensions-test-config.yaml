@@ -4,9 +4,7 @@ IrodsZone:
 IrodsAdminUser:
 IrodsAdminPassword:
 IrodsAdminPasswordFile:
-IrodsAdminLoginType:
 IrodsAuthScheme:
-IrodsNegotiationPolicy: native
 IrodsDefaultResource:
 
 IrodsPrimaryTestUser: test1

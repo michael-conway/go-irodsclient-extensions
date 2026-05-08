@@ -53,7 +53,7 @@ Keep integration support reusable across packages under `internal/testutil/`.
 
 Current shared integration config env var:
 
-- `GO_IRODSCLIENT_EXTENSIONS_TEST_CONFIG_FILE`
+- `GOEXT_TEST_CONFIG_ENV`
 
 Use that env var as the main source of live-test configuration.
 
@@ -67,9 +67,7 @@ IrodsPort: 1247
 IrodsZone: tempZone
 IrodsAdminUser: rods
 IrodsAdminPasswordFile: irods-admin-password.txt
-IrodsAdminLoginType: password
 IrodsAuthScheme: native
-IrodsNegotiationPolicy: native
 IrodsDefaultResource:
 IrodsPrimaryTestUser: test1
 IrodsPrimaryTestPassword: test
@@ -79,12 +77,12 @@ IrodsSecondaryTestPassword: test2
 
 The checked-in sample lives at:
 
-- `internal/testutil/extensions-test-config.yaml`
+- `integration/extensions-integration.sample.yaml`
 
 Typical shell setup:
 
 ```bash
-export GO_IRODSCLIENT_EXTENSIONS_TEST_CONFIG_FILE=internal/testutil/extensions-test-config.yaml
+export GOEXT_TEST_CONFIG_ENV=integration/extensions-integration.sample.yaml
 ```
 
 Tests should default to the configured primary and secondary test users rather than hardcoding local account names.
@@ -96,3 +94,21 @@ Tests should default to the configured primary and secondary test users rather t
 - Keep public APIs small and explicit.
 - Prefer deterministic helpers that are easy to test in isolation.
 - When adding live-test support, add a unit-tested config path first.
+
+## Local multi-repo sync (`go.work`)
+
+Use a workspace `go.work` file for local cross-repo development instead of
+`replace ../...` directives in `go.mod`.
+
+Current workspace scaffold (at `workspace-gabble/go.work`) includes:
+
+- `./go-irodsclient-extensions`
+- `./irods-go-rest`
+- `./irods-go-drs`
+
+Workflow:
+
+1. develop across repos with `go.work` active
+2. keep each repo `go.mod` pinned to real module versions (no local replace)
+3. when shared changes are ready, push/tag in `go-irodsclient-extensions`
+4. bump dependent repos with `go get <module>@<tag-or-commit>` and `go mod tidy`
