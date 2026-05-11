@@ -124,6 +124,17 @@ func TestStoreS3UserKeyRejectsInvalidKeyWithoutCreatingStructure(t *testing.T) {
 	}
 }
 
+func TestInvalidUserSecretKeyErrorDoesNotLeakSecretValue(t *testing.T) {
+	invalidKey := strings.Repeat("*", S3UserSecretKeyLength)
+	err := ValidateS3UserSecretKey(invalidKey)
+	if !errors.Is(err, ErrInvalidUserSecretKey) {
+		t.Fatalf("expected ErrInvalidUserSecretKey, got %v", err)
+	}
+	if strings.Contains(err.Error(), invalidKey) {
+		t.Fatalf("expected validation error message to avoid secret leakage, got %q", err.Error())
+	}
+}
+
 func TestGenerateAndStoreS3UserKey(t *testing.T) {
 	fs := newTestUserKeyFilesystem()
 	service := newTestUserKeyService(t, fs)

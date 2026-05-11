@@ -86,13 +86,21 @@ iRODS S3 API user mapping plugin. The file shape is:
 
 The map key is the S3 access key ID and is kept equal to the iRODS username.
 The service updates this file after adding, updating, generating, or deleting a
-user secret key. Writes are guarded and use an atomic temporary-file replacement
-like the bucket mapping file.
+user secret key. Writes are guarded by a mutex and use atomic temporary-file
+replacement (`os.CreateTemp` + `os.Rename`) like the bucket mapping file, which
+is collision-safe for concurrent writers in the same process.
 
 `RebuildUserMappingFromAVUs` searches for `iRODS:S3:Secret` AVUs, reads each
 marked secret key file, validates the stored key, and rewrites the user mapping
 JSON from the discovered records. This operation should be run with an iRODS
 account that can see all managed users' secret key files.
+
+## Security Notes
+
+- Secret-key validation and sentinel errors do not include plaintext secret key
+  values in default error strings.
+- Mapping write paths include file paths and operation context, but do not
+  include secret-key payload content.
 
 ## go-irodsclient Adapter
 
@@ -125,3 +133,37 @@ stored, err := users.StoreUserSecretKey(account, secretKey)
 generated, err := users.GenerateAndStoreUserSecretKey(account)
 result, err := users.RebuildUserMappingFromAVUs()
 ```
+
+## Error Taxonomy
+
+Bucket service (`S3Service`) sentinels for `errors.Is`:
+
+- `ErrMissingFilesystem`
+- `ErrMissingMappingFile`
+- `ErrInvalidScanRoot`
+- `ErrInvalidIRODSPath`
+- `ErrInvalidBucketName`
+- `ErrBucketNotFound`
+- `ErrBucketAlreadySet`
+- `ErrDuplicateBucket`
+
+User-key and user-mapping sentinels for `errors.Is`:
+
+- `ErrMissingAccount`
+- `ErrInvalidUserAccount`
+- `ErrInvalidUserID`
+- `ErrInvalidUserSecretKey`
+- `ErrMissingUserKeyService`
+- `ErrUserSecretMarkerNotFound`
+- `ErrDuplicateUserSecretMarker`
+- `ErrInvalidUserSecretKeyIRODSPath`
+- `ErrDuplicateUserMapping`
+
+Typed errors (use `errors.As`, then `errors.Is` on unwrap):
+
+- `*DuplicateBucketError` (unwraps to `ErrDuplicateBucket`)
+- `*DuplicateUserMappingError` (unwraps to `ErrDuplicateUserMapping`)
+- `*InvalidUserSecretKeyError` (unwraps to `ErrInvalidUserSecretKey`)
+
+Operational/storage errors are returned with context using `%w`, so callers can
+match underlying iRODS/filesystem errors without parsing strings.

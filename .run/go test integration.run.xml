@@ -1,0 +1,17 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="go test integration" type="GoTestRunConfiguration" factoryName="Go Test" nameIsGenerated="true">
+    <module name="go-irodsclient-extensions" />
+    <working_directory value="$PROJECT_DIR$/../go-irodsclient-extensions/integration" />
+    <useCustomBuildTags value="true" />
+    <envs>
+      <env name="GOEXT_TEST_CONFIG_ENV" value="$PROJECT_DIR$/../../temp/irods-ext/extensions-test-config.yaml" />
+    </envs>
+    <root_directory value="$PROJECT_DIR$/../go-irodsclient-extensions" />
+    <kind value="DIRECTORY" />
+    <package value="github.com/michael-conway/irods-go-drs" />
+    <directory value="$PROJECT_DIR$/../go-irodsclient-extensions/integration" />
+    <filePath value="$PROJECT_DIR$" />
+    <framework value="gotest" />
+    <method v="2" />
+  </configuration>
+</component>

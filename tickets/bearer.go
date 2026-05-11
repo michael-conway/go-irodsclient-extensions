@@ -1,6 +1,7 @@
 package tickets
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,13 @@ import (
 )
 
 const BearerTokenPrefix = "irods-ticket:"
+
+var (
+	ErrMissingFilesystem   = errors.New("missing iRODS filesystem")
+	ErrInvalidIRODSPath    = errors.New("invalid iRODS path")
+	ErrInvalidMaximumUses  = errors.New("invalid maximum uses")
+	ErrInvalidTicketExpiry = errors.New("invalid ticket lifetime minutes")
+)
 
 type AnonymousTicketFilesystem interface {
 	CreateTicket(ticketName string, ticketType irodstypes.TicketType, path string) error
@@ -54,20 +62,20 @@ func FormatBearerToken(ticketID string) string {
 // returns both the ticket id and the formatted bearer token.
 func CreateAnonymousDataObjectBearerToken(filesystem AnonymousTicketFilesystem, irodsPath string, maximumUses int64, ticketLifetimeMinutes int) (string, string, error) {
 	if filesystem == nil {
-		return "", "", fmt.Errorf("missing iRODS filesystem")
+		return "", "", ErrMissingFilesystem
 	}
 
 	irodsPath = strings.TrimSpace(irodsPath)
 	if irodsPath == "" {
-		return "", "", fmt.Errorf("missing iRODS path")
+		return "", "", ErrInvalidIRODSPath
 	}
 
 	if maximumUses < 0 {
-		return "", "", fmt.Errorf("maximum uses must be zero or greater")
+		return "", "", ErrInvalidMaximumUses
 	}
 
 	if ticketLifetimeMinutes < 0 {
-		return "", "", fmt.Errorf("ticket lifetime minutes must be zero or greater")
+		return "", "", ErrInvalidTicketExpiry
 	}
 
 	ticketID, err := newTicketID()
@@ -81,21 +89,21 @@ func CreateAnonymousDataObjectBearerToken(filesystem AnonymousTicketFilesystem, 
 
 	cleanupOnError := func(createErr error) (string, string, error) {
 		if deleteErr := filesystem.DeleteTicket(ticketID); deleteErr != nil {
-			return "", "", fmt.Errorf("%v: cleanup ticket %q: %w", createErr, ticketID, deleteErr)
+			return "", "", errors.Join(createErr, fmt.Errorf("cleanup ticket: %w", deleteErr))
 		}
 		return "", "", createErr
 	}
 
 	if maximumUses > 0 {
 		if err := filesystem.ModifyTicketUseLimit(ticketID, maximumUses); err != nil {
-			return cleanupOnError(fmt.Errorf("set use limit on ticket %q: %w", ticketID, err))
+			return cleanupOnError(fmt.Errorf("set use limit on created ticket: %w", err))
 		}
 	}
 
 	if ticketLifetimeMinutes > 0 {
 		expirationTime := ticketTimeNow().Add(time.Duration(ticketLifetimeMinutes) * time.Minute)
 		if err := filesystem.ModifyTicketExpirationTime(ticketID, expirationTime); err != nil {
-			return cleanupOnError(fmt.Errorf("set expiration on ticket %q: %w", ticketID, err))
+			return cleanupOnError(fmt.Errorf("set expiration on created ticket: %w", err))
 		}
 	}
 

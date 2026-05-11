@@ -66,13 +66,14 @@ IrodsHost: localhost
 IrodsPort: 1247
 IrodsZone: tempZone
 IrodsAdminUser: rods
-IrodsAdminPasswordFile: irods-admin-password.txt
+IrodsAdminPassword: rods
 IrodsAuthScheme: native
-IrodsDefaultResource:
+IrodsNegotiationPolicy: request_server_negotiation
+IrodsDefaultResource: demoResc
 IrodsPrimaryTestUser: test1
 IrodsPrimaryTestPassword: test
 IrodsSecondaryTestUser: test2
-IrodsSecondaryTestPassword: test2
+IrodsSecondaryTestPassword: test
 ```
 
 The checked-in sample lives at:

@@ -87,3 +87,17 @@ Rules follow gitignore-style matching against iRODS absolute paths relative to
 - `basePath` must be an absolute iRODS path.
 - Entries outside `basePath` are not ignored by this matcher.
 
+## Error Taxonomy
+
+Sentinel errors intended for `errors.Is` checks:
+
+- `ErrInvalidBasePath`
+- `ErrInvalidIgnorePath`
+- `ErrMissingFilesystem`
+- `ErrIgnorePathIsDirectory`
+
+The iRODS loader also preserves standard library sentinels where applicable:
+
+- `os.ErrInvalid` (wrapped with `ErrInvalidIgnorePath`)
+- `os.ErrNotExist` (missing ignore file)
+- `io.EOF` handling for reads

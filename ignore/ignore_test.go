@@ -1,6 +1,7 @@
 package ignore
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -182,6 +183,18 @@ func TestReadIgnoreFileFromIRODSRejectsDirectory(t *testing.T) {
 
 	if _, err := ReadIgnoreFileFromIRODS(filesystem, "/tempZone/home/test1/.ignore", "/tempZone/home/test1"); err == nil {
 		t.Fatal("expected directory error")
+	}
+}
+
+func TestReadIgnoreFileFromIRODSRejectsEmptyPath(t *testing.T) {
+	filesystem := &testIRODSIgnoreFilesystem{}
+
+	_, err := ReadIgnoreFileFromIRODS(filesystem, "   ", "/tempZone/home/test1")
+	if !errors.Is(err, ErrInvalidIgnorePath) {
+		t.Fatalf("expected ErrInvalidIgnorePath, got %v", err)
+	}
+	if !errors.Is(err, os.ErrInvalid) {
+		t.Fatalf("expected os.ErrInvalid, got %v", err)
 	}
 }
 

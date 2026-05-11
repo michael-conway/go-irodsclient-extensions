@@ -16,7 +16,7 @@ import (
 )
 
 func TestFavoritesAddListRenameRemoveIntegration(t *testing.T) {
-	filesystem := testutil.NewIntegrationPrimaryTestFilesystem(t)
+	filesystem := testutil.NewIntegrationSecondaryTestFilesystem(t)
 	defer filesystem.Release()
 
 	favoritesFilesystem := &irodsFavoritesFilesystem{filesystem: filesystem}
@@ -51,9 +51,15 @@ func TestFavoritesAddListRenameRemoveIntegration(t *testing.T) {
 	if err := service.AddFavorite(fileFavoriteName, filePath); err != nil {
 		t.Fatalf("add file favorite: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = service.RemoveFavorite(filePath)
+	})
 	if err := service.AddFavorite(collectionFavoriteName, collectionPath); err != nil {
 		t.Fatalf("add collection favorite: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = service.RemoveFavorite(collectionPath)
+	})
 
 	listedFavorites, err := service.ListFavorites()
 	if err != nil {
@@ -62,7 +68,7 @@ func TestFavoritesAddListRenameRemoveIntegration(t *testing.T) {
 	assertFavorites(t, listedFavorites, map[string]string{
 		filePath:       fileFavoriteName,
 		collectionPath: collectionFavoriteName,
-	})
+	}, nil)
 
 	renamedFileFavoriteName := "it-favorite-file-renamed-" + xid.New().String()
 	if err := service.RenameFavorite(filePath, renamedFileFavoriteName); err != nil {
@@ -76,7 +82,7 @@ func TestFavoritesAddListRenameRemoveIntegration(t *testing.T) {
 	assertFavorites(t, listedFavorites, map[string]string{
 		filePath:       renamedFileFavoriteName,
 		collectionPath: collectionFavoriteName,
-	})
+	}, nil)
 
 	if err := service.RemoveFavorite(collectionPath); err != nil {
 		t.Fatalf("remove collection favorite: %v", err)
@@ -88,23 +94,30 @@ func TestFavoritesAddListRenameRemoveIntegration(t *testing.T) {
 	}
 	assertFavorites(t, listedFavorites, map[string]string{
 		filePath: renamedFileFavoriteName,
-	})
+	}, []string{collectionPath})
 }
 
-func assertFavorites(t *testing.T, favoritesList []favorites.Favorite, expectedByPath map[string]string) {
+func assertFavorites(t *testing.T, favoritesList []favorites.Favorite, expectedByPath map[string]string, forbiddenPaths []string) {
 	t.Helper()
 
-	if len(favoritesList) != len(expectedByPath) {
-		t.Fatalf("expected %d favorites, got %d (%+v)", len(expectedByPath), len(favoritesList), favoritesList)
+	foundByPath := map[string]favorites.Favorite{}
+	for _, favorite := range favoritesList {
+		foundByPath[favorite.Path] = favorite
 	}
 
-	for _, favorite := range favoritesList {
-		expectedName, ok := expectedByPath[favorite.Path]
+	for expectedPath, expectedName := range expectedByPath {
+		favorite, ok := foundByPath[expectedPath]
 		if !ok {
-			t.Fatalf("unexpected favorite %+v", favorite)
+			t.Fatalf("expected favorite path %q to exist, got %+v", expectedPath, favoritesList)
 		}
 		if favorite.Name != expectedName {
-			t.Fatalf("expected favorite %q name %q, got %q", favorite.Path, expectedName, favorite.Name)
+			t.Fatalf("expected favorite %q name %q, got %q", expectedPath, expectedName, favorite.Name)
+		}
+	}
+
+	for _, forbiddenPath := range forbiddenPaths {
+		if favorite, ok := foundByPath[forbiddenPath]; ok {
+			t.Fatalf("expected favorite path %q to be absent, but found %+v", forbiddenPath, favorite)
 		}
 	}
 }

@@ -5,9 +5,10 @@ IrodsAdminUser:
 IrodsAdminPassword:
 IrodsAdminPasswordFile:
 IrodsAuthScheme:
+IrodsNegotiationPolicy:
 IrodsDefaultResource:
 
 IrodsPrimaryTestUser: test1
 IrodsPrimaryTestPassword: test
 IrodsSecondaryTestUser: test2
-IrodsSecondaryTestPassword: test2
+IrodsSecondaryTestPassword: test

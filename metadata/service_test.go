@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -191,13 +192,41 @@ func TestGenerateManifestFile(t *testing.T) {
 	}
 }
 
+func TestGenerateManifestReturnsErrPathStatMissingWhenFilesystemReturnsNilStat(t *testing.T) {
+	fs := &testFilesystem{
+		stats: map[string]PathStat{},
+		metadata: map[string][]AVUStat{
+			"/tempZone/home/test1/object.txt": {},
+		},
+		connectionInfo: map[string]ConnectionInfo{
+			"/tempZone/home/test1/object.txt": {},
+		},
+	}
+
+	service, err := NewService(fs)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	fs.statReturnsNil = true
+	_, err = service.GenerateManifest("/tempZone/home/test1/object.txt")
+	if !errors.Is(err, ErrPathStatMissing) {
+		t.Fatalf("expected ErrPathStatMissing, got %v", err)
+	}
+}
+
 type testFilesystem struct {
 	stats          map[string]PathStat
 	metadata       map[string][]AVUStat
 	connectionInfo map[string]ConnectionInfo
+	statReturnsNil bool
 }
 
 func (fs *testFilesystem) Stat(irodsPath string) (*PathStat, error) {
+	if fs.statReturnsNil {
+		return nil, nil
+	}
+
 	stat, ok := fs.stats[irodsPath]
 	if !ok {
 		return nil, os.ErrNotExist

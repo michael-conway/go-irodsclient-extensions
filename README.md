@@ -30,6 +30,33 @@ This repository is not intended to duplicate core transport, connection, or low-
 - `internal/testutil/`: shared test helpers for this repository
 - `testdata/`: fixtures used by tests
 
+## Public API Stability (Alpha)
+
+Stability levels used in this repository:
+
+- `alpha-stable`: package is intended for alpha consumption; minor breaking changes may occur with release-note notice
+- `experimental`: package API may change at any time
+
+Intended consumer categories:
+
+- `irods-go-rest`
+- `irods-go-drs`
+- `drscmd`
+- `other Go apps`
+
+| Package | Status | Intended consumers | Notes |
+| --- | --- | --- | --- |
+| `cmdcues` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Public supported package |
+| `favorites` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
+| `filecart` | experimental | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | API may change at any time; no direct replacement yet |
+| `ignore` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
+| `irodsuri` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
+| `metadata` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
+| `s3admin` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
+| `searchplugin` | experimental | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | API may change at any time |
+| `tickets` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
+| `userpersist` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
+
 ## Development
 
 ```bash

@@ -13,6 +13,7 @@ import (
 
 var (
 	ErrInvalidBasePath       = errors.New("invalid ignore base path")
+	ErrInvalidIgnorePath     = errors.New("invalid ignore path")
 	ErrMissingFilesystem     = errors.New("missing filesystem")
 	ErrIgnorePathIsDirectory = errors.New("ignore path is a directory")
 )
@@ -101,7 +102,7 @@ func ReadIgnoreFileFromIRODS(filesystem IRODSIgnoreFilesystem, ignoreIRODSPath s
 
 	ignoreIRODSPath = strings.TrimSpace(ignoreIRODSPath)
 	if ignoreIRODSPath == "" {
-		return nil, os.ErrInvalid
+		return nil, fmt.Errorf("%w: %w", ErrInvalidIgnorePath, os.ErrInvalid)
 	}
 
 	entry, err := filesystem.Stat(ignoreIRODSPath)

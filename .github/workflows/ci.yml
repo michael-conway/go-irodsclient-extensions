@@ -19,12 +19,21 @@ jobs:
           go-version-file: go.mod
 
       - name: Check formatting
-        run: gofmt -w $(find . -name '*.go' -type f)
+        run: |
+          unformatted="$(gofmt -l $(find . -name '*.go' -type f))"
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted Go files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Download modules
+        run: GOWORK=off go mod download
 
       - name: Verify module state
         run: |
-          go mod tidy
+          GOWORK=off go mod tidy
           git diff --exit-code
 
       - name: Run tests
-        run: go test ./...
+        run: GOWORK=off go test ./...

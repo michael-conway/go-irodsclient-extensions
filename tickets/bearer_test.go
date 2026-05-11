@@ -2,6 +2,7 @@ package tickets
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,17 +100,17 @@ func TestCreateAnonymousDataObjectBearerToken(t *testing.T) {
 }
 
 func TestCreateAnonymousDataObjectBearerTokenRejectsInvalidInput(t *testing.T) {
-	if _, _, err := CreateAnonymousDataObjectBearerToken(nil, "/tempZone/home/test1/file.txt", 1, 1); err == nil {
-		t.Fatal("expected nil filesystem to fail")
+	if _, _, err := CreateAnonymousDataObjectBearerToken(nil, "/tempZone/home/test1/file.txt", 1, 1); !errors.Is(err, ErrMissingFilesystem) {
+		t.Fatalf("expected ErrMissingFilesystem, got %v", err)
 	}
-	if _, _, err := CreateAnonymousDataObjectBearerToken(&testAnonymousTicketFilesystem{}, "   ", 1, 1); err == nil {
-		t.Fatal("expected blank path to fail")
+	if _, _, err := CreateAnonymousDataObjectBearerToken(&testAnonymousTicketFilesystem{}, "   ", 1, 1); !errors.Is(err, ErrInvalidIRODSPath) {
+		t.Fatalf("expected ErrInvalidIRODSPath, got %v", err)
 	}
-	if _, _, err := CreateAnonymousDataObjectBearerToken(&testAnonymousTicketFilesystem{}, "/tempZone/home/test1/file.txt", -1, 1); err == nil {
-		t.Fatal("expected negative use limit to fail")
+	if _, _, err := CreateAnonymousDataObjectBearerToken(&testAnonymousTicketFilesystem{}, "/tempZone/home/test1/file.txt", -1, 1); !errors.Is(err, ErrInvalidMaximumUses) {
+		t.Fatalf("expected ErrInvalidMaximumUses, got %v", err)
 	}
-	if _, _, err := CreateAnonymousDataObjectBearerToken(&testAnonymousTicketFilesystem{}, "/tempZone/home/test1/file.txt", 1, -1); err == nil {
-		t.Fatal("expected negative ticket lifetime to fail")
+	if _, _, err := CreateAnonymousDataObjectBearerToken(&testAnonymousTicketFilesystem{}, "/tempZone/home/test1/file.txt", 1, -1); !errors.Is(err, ErrInvalidTicketExpiry) {
+		t.Fatalf("expected ErrInvalidTicketExpiry, got %v", err)
 	}
 }
 
@@ -128,6 +129,29 @@ func TestCreateAnonymousDataObjectBearerTokenRollsBackOnRestrictionFailure(t *te
 	}
 	if fs.deletedTicketName != "ticket123" {
 		t.Fatalf("expected created ticket to be deleted on failure, got %q", fs.deletedTicketName)
+	}
+}
+
+func TestCreateAnonymousDataObjectBearerTokenErrorDoesNotLeakTicketID(t *testing.T) {
+	oldTicketID := newTicketID
+	newTicketID = func() (string, error) { return "ticket123", nil }
+	defer func() { newTicketID = oldTicketID }()
+
+	fs := &testAnonymousTicketFilesystem{
+		modifyUsesErr: errors.New("boom"),
+	}
+
+	_, _, err := CreateAnonymousDataObjectBearerToken(fs, "/tempZone/home/test1/file.txt", 50, 720)
+	if err == nil {
+		t.Fatal("expected restriction failure to return an error")
+	}
+
+	message := err.Error()
+	if strings.Contains(message, "ticket123") {
+		t.Fatalf("expected error to avoid ticket id leakage, got %q", message)
+	}
+	if strings.Contains(message, "irods-ticket:") {
+		t.Fatalf("expected error to avoid bearer token leakage, got %q", message)
 	}
 }
 

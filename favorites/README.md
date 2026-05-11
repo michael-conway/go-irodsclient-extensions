@@ -48,3 +48,16 @@ if err != nil {
 err = service.AddFavorite("Analysis inputs", "/tempZone/home/test1/inputs")
 items, err := service.ListFavorites()
 ```
+
+## Error Taxonomy
+
+Sentinel errors intended for `errors.Is` checks:
+
+- `ErrMissingFilesystem`
+- `ErrInvalidUserHome`
+- `ErrInvalidFavoriteName`
+- `ErrInvalidFavoritePath`
+- `ErrFavoriteNotFound`
+
+Operational/storage errors are returned with context using `%w`, so callers can
+match underlying filesystem errors without parsing strings.

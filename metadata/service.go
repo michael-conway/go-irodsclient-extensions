@@ -16,6 +16,7 @@ var (
 	ErrMissingFilesystem = errors.New("missing filesystem")
 	ErrInvalidIRODSPath  = errors.New("invalid irods path")
 	ErrInvalidOutputPath = errors.New("invalid output path")
+	ErrPathStatMissing   = errors.New("path stat missing")
 )
 
 // Filesystem is the minimal iRODS API required by the metadata manifest service.
@@ -91,7 +92,7 @@ func (service *Service) GenerateManifest(irodsPath string) (Manifest, error) {
 		return Manifest{}, fmt.Errorf("stat %q: %w", irodsPath, err)
 	}
 	if stat == nil {
-		return Manifest{}, fmt.Errorf("stat %q: no entry returned", irodsPath)
+		return Manifest{}, fmt.Errorf("%w for %q", ErrPathStatMissing, irodsPath)
 	}
 
 	metadata, err := service.filesystem.ListMetadata(irodsPath)

@@ -60,3 +60,18 @@ if err != nil {
 
 err = service.AddItem(cart.ID, "/tempZone/home/test1/data.txt", filecart.EntryTypeFile)
 ```
+
+## Error Taxonomy
+
+Sentinel errors intended for `errors.Is` checks:
+
+- `ErrMissingFilesystem`
+- `ErrInvalidUserHome`
+- `ErrInvalidCartName`
+- `ErrInvalidCartRef`
+- `ErrInvalidEntryPath`
+- `ErrInvalidEntryType`
+- `ErrInvalidMetadataPath`
+
+Operational/storage errors are returned with context using `%w`, so callers can
+match underlying filesystem errors without parsing strings.

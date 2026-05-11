@@ -89,6 +89,10 @@ type S3UserKeyService struct {
 }
 
 func NewS3UserKeyService(filesystem UserKeyFilesystem) (*S3UserKeyService, error) {
+	if filesystem == nil {
+		return nil, ErrMissingFilesystem
+	}
+
 	files, err := userpersist.NewFileService(filesystem)
 	if err != nil {
 		return nil, err

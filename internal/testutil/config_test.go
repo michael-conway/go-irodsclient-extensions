@@ -21,11 +21,12 @@ func TestReadExtensionsTestConfig(t *testing.T) {
 		"IrodsAdminUser: rods\n" +
 		"IrodsAdminPasswordFile: irods-admin-password.txt\n" +
 		"IrodsAuthScheme: native\n" +
+		"IrodsNegotiationPolicy: request_server_negotiation\n" +
 		"IrodsDefaultResource: demoResc\n" +
 		"IrodsPrimaryTestUser: test1\n" +
 		"IrodsPrimaryTestPassword: test\n" +
 		"IrodsSecondaryTestUser: test2\n" +
-		"IrodsSecondaryTestPassword: test2\n"
+		"IrodsSecondaryTestPassword: test\n"
 	if err := os.WriteFile(configPath, []byte(configBody), 0600); err != nil {
 		t.Fatalf("write config file: %v", err)
 	}
@@ -53,6 +54,9 @@ func TestReadExtensionsTestConfig(t *testing.T) {
 	if cfg.IrodsAuthScheme != "native" {
 		t.Fatalf("expected auth scheme native, got %q", cfg.IrodsAuthScheme)
 	}
+	if cfg.IrodsNegotiationPolicy != "request_server_negotiation" {
+		t.Fatalf("expected negotiation policy request_server_negotiation, got %q", cfg.IrodsNegotiationPolicy)
+	}
 	if cfg.IrodsDefaultResource != "demoResc" {
 		t.Fatalf("expected default resource demoResc, got %q", cfg.IrodsDefaultResource)
 	}
@@ -65,7 +69,7 @@ func TestReadExtensionsTestConfig(t *testing.T) {
 	if cfg.IrodsSecondaryTestUser != "test2" {
 		t.Fatalf("expected secondary test user test2, got %q", cfg.IrodsSecondaryTestUser)
 	}
-	if cfg.IrodsSecondaryTestPassword != "test2" {
-		t.Fatalf("expected secondary test password test2, got %q", cfg.IrodsSecondaryTestPassword)
+	if cfg.IrodsSecondaryTestPassword != "test" {
+		t.Fatalf("expected secondary test password test, got %q", cfg.IrodsSecondaryTestPassword)
 	}
 }

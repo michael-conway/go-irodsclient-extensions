@@ -108,6 +108,38 @@ func NewIntegrationPrimaryTestFilesystem(t testing.TB) *irodsfs.FileSystem {
 	return filesystem
 }
 
+func NewIntegrationSecondaryTestFilesystem(t testing.TB) *irodsfs.FileSystem {
+	t.Helper()
+
+	cfg := RequireIntegrationConfig(t)
+	requireNonEmptyIntegrationValue(t, "IrodsHost", cfg.IrodsHost)
+	if cfg.IrodsPort <= 0 {
+		t.Fatalf("integration tests require IrodsPort in %s", ExtensionsIntegrationConfigFileEnvVar)
+	}
+	requireNonEmptyIntegrationValue(t, "IrodsZone", cfg.IrodsZone)
+	requireNonEmptyIntegrationValue(t, "IrodsAuthScheme", cfg.IrodsAuthScheme)
+
+	account, err := irodstypes.CreateIRODSAccount(
+		cfg.IrodsHost,
+		cfg.IrodsPort,
+		IntegrationSecondaryTestUser(t),
+		cfg.IrodsZone,
+		irodstypes.GetAuthScheme(cfg.IrodsAuthScheme),
+		IntegrationSecondaryTestPassword(t),
+		cfg.IrodsDefaultResource,
+	)
+	if err != nil {
+		t.Fatalf("create iRODS secondary test account: %v", err)
+	}
+
+	filesystem, err := irodsfs.NewFileSystemWithDefault(account, "go-irodsclient-extensions-integration-test-secondary")
+	if err != nil {
+		t.Fatalf("connect to iRODS for secondary-user integration tests: %v", err)
+	}
+
+	return filesystem
+}
+
 func IntegrationPrimaryTestUser(t testing.TB) string {
 	t.Helper()
 

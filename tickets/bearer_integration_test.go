@@ -33,7 +33,7 @@ func TestCreateAnonymousDataObjectBearerTokenIntegration(t *testing.T) {
 	}()
 
 	objectPath := util.GetCorrectIRODSPath(rootPath + "/object.txt")
-	if _, err := filesystem.UploadFileFromBuffer(bytes.NewBufferString("extensions ticket integration payload\n"), objectPath, "", false, true, false, false, nil); err != nil {
+	if _, err := filesystem.UploadFileFromBuffer(bytes.NewBufferString("extensions ticket integration payload\n"), objectPath, "", false, true, nil); err != nil {
 		t.Fatalf("upload integration ticket object %q: %v", objectPath, err)
 	}
 
