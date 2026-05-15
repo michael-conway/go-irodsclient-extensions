@@ -102,14 +102,64 @@ collections:
 Boolean grouping and OR expressions are rejected unless they can be mapped to
 base GenQuery without client-side filtering or hidden query expansion.
 
+## Saved User Queries
+
+Saved entry queries are user-scoped query definitions stored with
+`userpersist` under the user's home collection:
+
+```text
+/tempZone/home/test1/.irodsext/
+  metadata_queries/
+    <query-id>.entry-query.json
+```
+
+Each file contains a canonical `SavedEntryQuery` JSON document. The embedded
+query is stored as an `EntryQueryDefinition`; cursor/page state is intentionally
+not persisted.
+
+```go
+service, err := metadata.NewSavedEntryQueryService(filesystem, "/tempZone/home/test1")
+if err != nil {
+    return err
+}
+
+saved, err := service.CreateSavedQuery("Frog data", metadata.EntryQueryDefinition{
+    Type:  metadata.AVUQueryDefinitionType,
+    Kinds: []metadata.EntryKind{metadata.EntryKindDataObject},
+    Scope: &metadata.EntryQueryScope{
+        Root: "/tempZone/home/test1",
+        Mode: metadata.EntryQueryScopeDescendants,
+    },
+    AVU: &metadata.AVUQuerySpec{
+        Attrib: "project",
+        Value:  "frog*",
+        Unit:   metadata.AnyUnit,
+    },
+    Defaults: metadata.EntryQueryDefaults{Limit: 100},
+})
+if err != nil {
+    return err
+}
+
+query, err := service.ToEntryQuery(saved.ID, metadata.EntryQueryExecutionOptions{Limit: 25})
+```
+
+The service writes one JSON data object per saved query. It does not use AVU
+values as the primary storage format, so larger query definitions can be kept
+without AVU length or escaping concerns.
+
 ## Error Semantics
 
 Sentinel errors intended for `errors.Is` checks:
 
 - `ErrMissingFilesystem`
+- `ErrInvalidUserHome`
 - `ErrInvalidIRODSPath`
 - `ErrInvalidOutputPath`
 - `ErrPathStatMissing` (filesystem returned no stat entry)
+- `ErrInvalidSavedEntryQueryID`
+- `ErrInvalidSavedEntryQueryName`
+- `ErrInvalidSavedEntryQuery`
 
 Operational/storage/rendering errors are returned with context using `%w`, so
 callers can match underlying filesystem/IO errors without parsing strings.
@@ -128,3 +178,5 @@ callers can match underlying filesystem/IO errors without parsing strings.
   `integration/metadata_entry_query_integration_test.go` for live scoped AVU queries,
   matched AVU expansion, child/descendant scope behavior, logical cursors, and
   default single-replica data object entries.
+- Saved-query persistence coverage exists in
+  `integration/metadata_saved_entry_query_integration_test.go`.
