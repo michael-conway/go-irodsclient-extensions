@@ -44,6 +44,35 @@ type Metadata struct {
 	Units string
 }
 
+// CollectionMetadataQueryScope controls collection AVU search scope.
+type CollectionMetadataQueryScope string
+
+const (
+	CollectionMetadataQueryScopeSelf        CollectionMetadataQueryScope = "self"
+	CollectionMetadataQueryScopeChildren    CollectionMetadataQueryScope = "children"
+	CollectionMetadataQueryScopeDescendants CollectionMetadataQueryScope = "descendants"
+)
+
+// CollectionMetadataQueryOptions controls collection AVU search.
+type CollectionMetadataQueryOptions struct {
+	IRODSPath string
+	Scope     CollectionMetadataQueryScope
+}
+
+// CollectionMetadataMatch contains one collection path and the matched AVUs
+// from a collection metadata query.
+type CollectionMetadataMatch struct {
+	IRODSPath string
+	Metadata  []Metadata
+}
+
+// DataObjectMetadataMatch contains one data object path and the matched AVUs
+// from a data object metadata query.
+type DataObjectMetadataMatch struct {
+	IRODSPath string
+	Metadata  []Metadata
+}
+
 // EntryType identifies the kind of filesystem entry returned by metadata search.
 type EntryType string
 
@@ -63,9 +92,7 @@ type Entry struct {
 // Filesystem is the collection-level iRODS API required by the bucket manager.
 type Filesystem interface {
 	CollectionExists(irodsPath string) (bool, error)
-	// SearchByMeta searches filesystem entries by AVU name and value.
-	// Implementations backed by go-irodsclient can delegate to fs.FileSystem.SearchByMeta.
-	SearchByMeta(metaName string, metaValue string) ([]Entry, error)
+	QueryCollectionMetadata(metaName string, metaValue string, options CollectionMetadataQueryOptions) ([]CollectionMetadataMatch, error)
 	ListCollectionMetadata(collectionPath string) ([]Metadata, error)
 	AddCollectionMetadata(collectionPath string, metadata Metadata) error
 	DeleteCollectionMetadata(collectionPath string, metadata Metadata) error
@@ -247,9 +274,7 @@ type S3Service struct {
 // keys and user mapping file refreshes.
 type UserMappingFilesystem interface {
 	UserKeyFilesystem
-	// SearchByMeta searches filesystem entries by AVU name and value.
-	// Implementations backed by go-irodsclient can delegate to fs.FileSystem.SearchByMeta.
-	SearchByMeta(metaName string, metaValue string) ([]Entry, error)
+	QueryDataObjectMetadata(metaName string, metaValue string) ([]DataObjectMetadataMatch, error)
 }
 
 // S3UserMappingService manages S3 user secret keys and keeps the S3 API user
@@ -841,28 +866,40 @@ func (service *S3UserMappingService) writeUserMappingLocked(users []S3UserMappin
 	return service.mappingFile.replaceLocked(mapping)
 }
 
-// TODO://optimize avu query
 func (service *S3UserMappingService) discoverUserSecretMappings() ([]S3UserMapping, error) {
-	entries, err := service.filesystem.SearchByMeta(AVUSecretAttribute, metadataValueWildcard)
+	matches, err := service.filesystem.QueryDataObjectMetadata(AVUSecretAttribute, metadataValueWildcard)
 	if err != nil {
 		return nil, fmt.Errorf("search s3 user secret metadata %q=%q: %w", AVUSecretAttribute, metadataValueWildcard, err)
 	}
 
-	users := make([]S3UserMapping, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDataObject() {
+	users := make([]S3UserMapping, 0, len(matches))
+	for _, match := range matches {
+		secretPath := normalizeIRODSPath(match.IRODSPath)
+		if secretPath == "" {
 			continue
 		}
 
-		userKey, err := service.userKeys.GetS3UserKeyAtPath(entry.Path)
+		userID, err := userIDFromSecretMarkerAVUs(match.Metadata)
 		if err != nil {
 			return nil, err
 		}
-		userID := normalizeUserID(userKey.UserName)
-		if userID == "" {
-			return nil, ErrUserSecretMarkerNotFound
+
+		contents, err := readDataObjectForUser(service.filesystem, secretPath, userID)
+		if err != nil {
+			return nil, fmt.Errorf("read s3 user secret key %q: %w", secretPath, err)
 		}
-		users = append(users, s3UserMappingFromKey(userKey, userID))
+
+		secretKey := strings.TrimSpace(string(contents))
+		if err := ValidateS3UserSecretKey(secretKey); err != nil {
+			return nil, fmt.Errorf("stored s3 user secret key %q: %w", secretPath, err)
+		}
+
+		users = append(users, s3UserMappingFromKey(S3UserKey{
+			UserName:     userID,
+			UserHomePath: userHomePathFromSecretKeyPath(secretPath),
+			IRODSPath:    secretPath,
+			SecretKey:    secretKey,
+		}, userID))
 	}
 	return sortUserMappings(deduplicateUserMappings(users)), nil
 }
@@ -876,35 +913,29 @@ func (service *S3Service) searchBucketsByName(bucketName string, options ListOpt
 	return service.searchBucketsByMetadataValue(bucketName, options)
 }
 
-// TODO://optimize avu query
 func (service *S3Service) searchBucketsByMetadataValue(metaValue string, options ListOptions) ([]Bucket, error) {
 	startPath := normalizeIRODSPath(options.IRODSPath)
 	if startPath == "" {
 		startPath = service.scanRoot
 	}
 
-	entries, err := service.filesystem.SearchByMeta(AVUBucketAttribute, metaValue)
+	matches, err := service.queryBucketMetadata(metaValue, startPath, options.Recursive)
 	if err != nil {
-		return nil, fmt.Errorf("search bucket metadata %q=%q: %w", AVUBucketAttribute, metaValue, err)
+		return nil, err
 	}
 
 	bucketNameFilter := normalizeOptionalBucketName(options.BucketName)
-	buckets := make([]Bucket, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsCollection() {
+	buckets := make([]Bucket, 0, len(matches))
+	for _, match := range matches {
+		collectionPath := normalizeIRODSPath(match.IRODSPath)
+		if collectionPath == "" {
 			continue
 		}
 
-		collectionPath := normalizeIRODSPath(entry.Path)
-		if collectionPath == "" || !pathWithinScope(collectionPath, startPath, options.Recursive) {
-			continue
-		}
-
-		bucketAVUs, err := service.bucketAVUs(collectionPath)
-		if err != nil {
-			return nil, err
-		}
-		for _, avu := range bucketAVUs {
+		for _, avu := range match.Metadata {
+			if avu.Name != AVUBucketAttribute {
+				continue
+			}
 			bucketName := normalizeBucketName(avu.Value)
 			if bucketName == "" || (bucketNameFilter != "" && bucketName != bucketNameFilter) {
 				continue
@@ -917,6 +948,59 @@ func (service *S3Service) searchBucketsByMetadataValue(metaValue string, options
 	}
 
 	return sortBuckets(deduplicateBuckets(buckets)), nil
+}
+
+func (service *S3Service) queryBucketMetadata(metaValue string, startPath string, recursive bool) ([]CollectionMetadataMatch, error) {
+	scopes := []CollectionMetadataQueryScope{
+		CollectionMetadataQueryScopeSelf,
+		CollectionMetadataQueryScopeChildren,
+	}
+	if recursive {
+		scopes[1] = CollectionMetadataQueryScopeDescendants
+	}
+
+	metadataByPath := map[string][]Metadata{}
+	paths := []string{}
+	for _, scope := range scopes {
+		matches, err := service.filesystem.QueryCollectionMetadata(AVUBucketAttribute, metaValue, CollectionMetadataQueryOptions{
+			IRODSPath: startPath,
+			Scope:     scope,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("search bucket metadata %q=%q path=%q scope=%q: %w", AVUBucketAttribute, metaValue, startPath, scope, err)
+		}
+		for _, match := range matches {
+			collectionPath := normalizeIRODSPath(match.IRODSPath)
+			if collectionPath == "" {
+				continue
+			}
+			if _, ok := metadataByPath[collectionPath]; !ok {
+				paths = append(paths, collectionPath)
+			}
+			for _, avu := range match.Metadata {
+				metadataByPath[collectionPath] = appendUniqueMetadata(metadataByPath[collectionPath], avu)
+			}
+		}
+	}
+
+	sort.Strings(paths)
+	result := make([]CollectionMetadataMatch, 0, len(paths))
+	for _, collectionPath := range paths {
+		result = append(result, CollectionMetadataMatch{
+			IRODSPath: collectionPath,
+			Metadata:  metadataByPath[collectionPath],
+		})
+	}
+	return result, nil
+}
+
+func appendUniqueMetadata(existing []Metadata, avu Metadata) []Metadata {
+	for _, candidate := range existing {
+		if candidate == avu {
+			return existing
+		}
+	}
+	return append(existing, avu)
 }
 
 func (service *S3Service) replaceBucketAVUs(irodsPath string, bucketName string) error {
