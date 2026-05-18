@@ -51,6 +51,35 @@ Use two layers:
 
 Keep integration support reusable across packages under `internal/testutil/`.
 
+Preferred live-test substrate:
+
+- `irods-grid-stack`
+
+Use `irods-grid-stack` as the default local iRODS grid for extension
+integration testing and for cross-repo REST/DRS validation. The extensions
+tests should only require backend iRODS services, so the backend-only stack is
+normally sufficient:
+
+```bash
+cd ../irods-grid-stack
+docker compose up -d --build
+```
+
+When testing extension behavior through consumer services such as
+`irods-go-rest`, `irods-go-drs`, or Starbase, use the full frontend profile from
+`irods-grid-stack`:
+
+```bash
+cd ../irods-grid-stack
+docker compose --profile frontend up -d --build
+```
+
+The legacy `irods-go-drs/deployments/docker-test-framework/` compose framework
+is deprecated for new extension work. Do not add new integration-test or sample
+configuration dependencies on that DRS-local stack. It may remain in
+`irods-go-drs` for historical reproduction while active development converges
+on `irods-grid-stack`.
+
 Current shared integration config env var:
 
 - `GOEXT_TEST_CONFIG_ENV`
@@ -79,6 +108,11 @@ IrodsSecondaryTestPassword: test
 The checked-in sample lives at:
 
 - `integration/extensions-integration.sample.yaml`
+
+That sample should stay aligned with the default host-facing
+`irods-grid-stack` backend ports, users, zone, and resource names. If
+`irods-grid-stack` defaults change, update this sample and the corresponding
+consumer samples in `irods-go-rest/e2e/` and `irods-go-drs/e2e/` together.
 
 Typical shell setup:
 

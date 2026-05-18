@@ -146,11 +146,15 @@ func TestS3AdminUserKeyLifecycleIntegration(t *testing.T) {
 	})
 
 	adapter := s3adminirodsfs.NewAdapterWithProxyAccount(filesystem, adminFilesystem.GetAccount(), "go-irodsclient-extensions-s3admin-user-key-integration")
+	scopedAdapter := &scopedS3AdminUserMappingFilesystem{
+		Adapter: adapter,
+		root:    fixtureHome,
+	}
 	keyService, err := s3admin.NewS3UserKeyService(adapter)
 	if err != nil {
 		t.Fatalf("create s3 user key service: %v", err)
 	}
-	mappingService, err := s3admin.NewS3UserMappingService(adapter, path.Join(t.TempDir(), "irods-s3-user-mapping.json"))
+	mappingService, err := s3admin.NewS3UserMappingService(scopedAdapter, path.Join(t.TempDir(), "irods-s3-user-mapping.json"))
 	if err != nil {
 		t.Fatalf("create s3 user mapping service: %v", err)
 	}
@@ -311,6 +315,44 @@ func readS3AdminUserMapping(t *testing.T, mappingPath string) map[string]s3admin
 		t.Fatalf("decode user mapping file %q: %v", mappingPath, err)
 	}
 	return actual
+}
+
+type scopedS3AdminUserMappingFilesystem struct {
+	*s3adminirodsfs.Adapter
+	root string
+}
+
+func (filesystem *scopedS3AdminUserMappingFilesystem) QueryDataObjectMetadata(metaName string, metaValue string) ([]s3admin.DataObjectMetadataMatch, error) {
+	matches, err := filesystem.Adapter.QueryDataObjectMetadata(metaName, metaValue)
+	if err != nil {
+		return nil, err
+	}
+
+	root := normalizeIntegrationIRODSPath(filesystem.root)
+	filtered := make([]s3admin.DataObjectMetadataMatch, 0, len(matches))
+	for _, match := range matches {
+		if integrationPathWithinScope(match.IRODSPath, root) {
+			filtered = append(filtered, match)
+		}
+	}
+	return filtered, nil
+}
+
+func integrationPathWithinScope(candidatePath string, root string) bool {
+	candidatePath = normalizeIntegrationIRODSPath(candidatePath)
+	root = normalizeIntegrationIRODSPath(root)
+	if candidatePath == "" || root == "" {
+		return false
+	}
+	return candidatePath == root || strings.HasPrefix(candidatePath, root+"/")
+}
+
+func normalizeIntegrationIRODSPath(irodsPath string) string {
+	irodsPath = strings.TrimSpace(irodsPath)
+	if irodsPath == "" || !strings.HasPrefix(irodsPath, "/") {
+		return ""
+	}
+	return path.Clean(irodsPath)
 }
 
 func assertS3AdminBuckets(t *testing.T, buckets []s3admin.Bucket, expected map[string]string) {

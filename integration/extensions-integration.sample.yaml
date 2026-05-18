@@ -1,3 +1,6 @@
+# Host-facing defaults for integration tests against ../irods-grid-stack.
+# Keep this aligned with the consumer E2E samples in irods-go-rest and
+# irods-go-drs when grid-stack users, ports, zone, or resources change.
 IrodsHost: localhost
 IrodsPort: 1247
 IrodsZone: tempZone
