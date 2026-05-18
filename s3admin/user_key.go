@@ -409,6 +409,10 @@ func (service *S3UserKeyService) userIDForSecretKeyPath(secretPath string) (stri
 	if err != nil {
 		return "", err
 	}
+	return userIDFromSecretMarkerAVUs(markers)
+}
+
+func userIDFromSecretMarkerAVUs(markers []Metadata) (string, error) {
 	if len(markers) == 0 {
 		return "", ErrUserSecretMarkerNotFound
 	}

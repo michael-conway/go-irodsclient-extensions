@@ -19,6 +19,7 @@ type ExtensionsTestConfig struct {
 	IrodsAdminPassword         string `yaml:"IrodsAdminPassword"`
 	IrodsAdminPasswordFile     string `yaml:"IrodsAdminPasswordFile"`
 	IrodsAuthScheme            string `yaml:"IrodsAuthScheme"`
+	IrodsNegotiationPolicy     string `yaml:"IrodsNegotiationPolicy"`
 	IrodsDefaultResource       string `yaml:"IrodsDefaultResource"`
 	IrodsPrimaryTestUser       string `yaml:"IrodsPrimaryTestUser"`
 	IrodsPrimaryTestPassword   string `yaml:"IrodsPrimaryTestPassword"`

@@ -65,8 +65,8 @@ func TestAddBucketRejectsDuplicateName(t *testing.T) {
 	if duplicateErr.ExistingPath != "/tempZone/home/test1" || duplicateErr.RequestedPath != "/tempZone/home/test2" {
 		t.Fatalf("unexpected duplicate error %+v", duplicateErr)
 	}
-	if !fs.wasSearched(AVUBucketAttribute, "shared-bucket") {
-		t.Fatal("expected duplicate check to use metadata search")
+	if !fs.wasQueriedCollectionMetadata(AVUBucketAttribute, "shared-bucket") {
+		t.Fatal("expected duplicate check to use collection metadata query")
 	}
 }
 
@@ -237,8 +237,10 @@ func TestListBucketsSupportsRecursiveOption(t *testing.T) {
 	if bucketNames(recursive) != "deep-bucket,home-bucket,test1-bucket" {
 		t.Fatalf("unexpected recursive buckets %+v", recursive)
 	}
-	if !fs.wasSearched(AVUBucketAttribute, metadataValueWildcard) {
-		t.Fatal("expected list buckets to use metadata search")
+	if !fs.wasQueriedCollectionMetadataScope(AVUBucketAttribute, metadataValueWildcard, CollectionMetadataQueryScopeSelf) ||
+		!fs.wasQueriedCollectionMetadataScope(AVUBucketAttribute, metadataValueWildcard, CollectionMetadataQueryScopeChildren) ||
+		!fs.wasQueriedCollectionMetadataScope(AVUBucketAttribute, metadataValueWildcard, CollectionMetadataQueryScopeDescendants) {
+		t.Fatalf("expected list buckets to use self, children, and descendants collection metadata queries, got %+v", fs.queries)
 	}
 }
 
@@ -267,8 +269,8 @@ func TestListBucketsSupportsBucketNameFilter(t *testing.T) {
 	if len(buckets) != 1 || buckets[0].Name != "bravo" || buckets[0].IRODSPath != "/tempZone/home/test2" {
 		t.Fatalf("unexpected bucket-name search result %+v", buckets)
 	}
-	if !fs.wasSearched(AVUBucketAttribute, "bravo") {
-		t.Fatal("expected bucket-name list to use exact metadata search")
+	if !fs.wasQueriedCollectionMetadata(AVUBucketAttribute, "bravo") {
+		t.Fatal("expected bucket-name list to use collection metadata query")
 	}
 }
 
@@ -289,8 +291,8 @@ func TestSearchBucketsUsesMetadataSearch(t *testing.T) {
 	if len(buckets) != 1 || buckets[0].Name != "alpha" || buckets[0].IRODSPath != "/tempZone/home/test1" {
 		t.Fatalf("unexpected search result %+v", buckets)
 	}
-	if !fs.wasSearched(AVUBucketAttribute, "alpha") {
-		t.Fatal("expected search buckets to use metadata search")
+	if !fs.wasQueriedCollectionMetadata(AVUBucketAttribute, "alpha") {
+		t.Fatal("expected search buckets to use collection metadata query")
 	}
 }
 
@@ -319,7 +321,6 @@ func TestRefreshMappingUsesAVUsAsSourceOfTruth(t *testing.T) {
 
 func TestRebuildMappingFromAVUsDoesNotUseKnownMappingFallback(t *testing.T) {
 	fs := newTestFilesystem()
-	fs.exactSearchOnly = true
 	fs.addCollection("/tempZone/home")
 	fs.addCollection("/tempZone/home/test1")
 	fs.metadata["/tempZone/home/test1"] = []Metadata{
@@ -339,25 +340,24 @@ func TestRebuildMappingFromAVUsDoesNotUseKnownMappingFallback(t *testing.T) {
 	if result.MappingFilePath != service.MappingFilePath() {
 		t.Fatalf("expected mapping file path %q, got %q", service.MappingFilePath(), result.MappingFilePath)
 	}
-	if len(result.Buckets) != 0 {
-		t.Fatalf("expected no buckets without known-name fallback, got %+v", result.Buckets)
+	if len(result.Buckets) != 1 || result.Buckets[0].Name != "known-bucket" {
+		t.Fatalf("expected AVU-derived bucket without known-name fallback, got %+v", result.Buckets)
 	}
 
 	mapping := readMappingFile(t, service.MappingFilePath())
-	if len(mapping) != 0 {
-		t.Fatalf("expected rebuilt mapping to be empty, got %+v", mapping)
+	if len(mapping) != 1 || mapping["known-bucket"] != "/tempZone/home/test1" {
+		t.Fatalf("expected rebuilt mapping from AVU query, got %+v", mapping)
 	}
-	if !fs.wasSearched(AVUBucketAttribute, metadataValueWildcard) {
-		t.Fatalf("expected wildcard search call, got %+v", fs.searches)
+	if !fs.wasQueriedCollectionMetadata(AVUBucketAttribute, metadataValueWildcard) {
+		t.Fatalf("expected wildcard collection metadata query, got %+v", fs.queries)
 	}
-	if fs.wasSearched(AVUBucketAttribute, "known-bucket") {
-		t.Fatalf("did not expect known-name fallback search, got %+v", fs.searches)
+	if fs.wasQueriedCollectionMetadata(AVUBucketAttribute, "known-bucket") {
+		t.Fatalf("did not expect known-name fallback query, got %+v", fs.queries)
 	}
 }
 
 func TestRefreshMappingFallsBackToKnownMappingBucketNames(t *testing.T) {
 	fs := newTestFilesystem()
-	fs.exactSearchOnly = true
 	fs.addCollection("/tempZone/home")
 	fs.addCollection("/tempZone/home/test1")
 	fs.metadata["/tempZone/home/test1"] = []Metadata{
@@ -375,10 +375,11 @@ func TestRefreshMappingFallsBackToKnownMappingBucketNames(t *testing.T) {
 
 	mapping := readMappingFile(t, service.MappingFilePath())
 	if len(mapping) != 1 || mapping["known-bucket"] != "/tempZone/home/test1" {
-		t.Fatalf("expected exact-search fallback mapping, got %+v", mapping)
+		t.Fatalf("expected refreshed mapping, got %+v", mapping)
 	}
-	if !fs.wasSearched(AVUBucketAttribute, metadataValueWildcard) || !fs.wasSearched(AVUBucketAttribute, "known-bucket") {
-		t.Fatalf("expected wildcard and known-name search calls, got %+v", fs.searches)
+	if !fs.wasQueriedCollectionMetadata(AVUBucketAttribute, metadataValueWildcard) ||
+		!fs.wasQueriedCollectionMetadata(AVUBucketAttribute, "known-bucket") {
+		t.Fatalf("expected wildcard and known-name collection metadata queries, got %+v", fs.queries)
 	}
 }
 
@@ -505,8 +506,8 @@ func TestRebuildUserMappingFromAVUsUsesMarkedSecretsAsSourceOfTruth(t *testing.T
 	if len(mapping) != 2 || mapping["test1"].SecretKey != validS3UserSecretKey || mapping["test2"].SecretKey != test2Key {
 		t.Fatalf("expected rebuilt user mapping, got %+v", mapping)
 	}
-	if !fs.wasSearched(AVUSecretAttribute, metadataValueWildcard) {
-		t.Fatalf("expected marker metadata search, got %+v", fs.searches)
+	if !fs.wasQueriedDataObjectMetadata(AVUSecretAttribute, metadataValueWildcard) {
+		t.Fatalf("expected marker data object metadata query, got %+v", fs.dataQueries)
 	}
 }
 
@@ -666,8 +667,8 @@ type testFilesystem struct {
 	files       map[string][]byte
 	metadata    map[string][]Metadata
 	searches    []metadataSearch
-
-	exactSearchOnly bool
+	queries     []collectionMetadataQuery
+	dataQueries []dataObjectMetadataQuery
 }
 
 func newTestFilesystem() *testFilesystem {
@@ -728,7 +729,7 @@ func (fs *testFilesystem) metadataMatches(irodsPath string, metaName string, met
 		if avu.Name != metaName {
 			continue
 		}
-		if metaValue == metadataValueWildcard && !fs.exactSearchOnly {
+		if metaValue == metadataValueWildcard {
 			return true
 		}
 		if avu.Value == metaValue {
@@ -741,6 +742,125 @@ func (fs *testFilesystem) metadataMatches(irodsPath string, metaName string, met
 func (fs *testFilesystem) wasSearched(metaName string, metaValue string) bool {
 	for _, search := range fs.searches {
 		if search.Name == metaName && search.Value == metaValue {
+			return true
+		}
+	}
+	return false
+}
+
+func (fs *testFilesystem) QueryCollectionMetadata(metaName string, metaValue string, options CollectionMetadataQueryOptions) ([]CollectionMetadataMatch, error) {
+	fs.queries = append(fs.queries, collectionMetadataQuery{
+		Name:      metaName,
+		Value:     metaValue,
+		IRODSPath: options.IRODSPath,
+		Scope:     options.Scope,
+	})
+
+	matches := make([]CollectionMetadataMatch, 0)
+	for collectionPath := range fs.collections {
+		if !collectionMetadataScopeMatches(collectionPath, options) {
+			continue
+		}
+
+		metadata := []Metadata{}
+		for _, avu := range fs.metadata[path.Clean(collectionPath)] {
+			if avu.Name != metaName || !collectionMetadataValueMatches(avu.Value, metaValue) {
+				continue
+			}
+			metadata = append(metadata, avu)
+		}
+		if len(metadata) == 0 {
+			continue
+		}
+		matches = append(matches, CollectionMetadataMatch{
+			IRODSPath: collectionPath,
+			Metadata:  metadata,
+		})
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].IRODSPath < matches[j].IRODSPath
+	})
+	return matches, nil
+}
+
+func (fs *testFilesystem) QueryDataObjectMetadata(metaName string, metaValue string) ([]DataObjectMetadataMatch, error) {
+	fs.dataQueries = append(fs.dataQueries, dataObjectMetadataQuery{
+		Name:  metaName,
+		Value: metaValue,
+	})
+
+	matches := make([]DataObjectMetadataMatch, 0)
+	for objectPath := range fs.objects {
+		metadata := []Metadata{}
+		for _, avu := range fs.metadata[path.Clean(objectPath)] {
+			if avu.Name != metaName || !collectionMetadataValueMatches(avu.Value, metaValue) {
+				continue
+			}
+			metadata = append(metadata, avu)
+		}
+		if len(metadata) == 0 {
+			continue
+		}
+		matches = append(matches, DataObjectMetadataMatch{
+			IRODSPath: objectPath,
+			Metadata:  metadata,
+		})
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].IRODSPath < matches[j].IRODSPath
+	})
+	return matches, nil
+}
+
+func collectionMetadataScopeMatches(collectionPath string, options CollectionMetadataQueryOptions) bool {
+	collectionPath = normalizeIRODSPath(collectionPath)
+	root := normalizeIRODSPath(options.IRODSPath)
+	if collectionPath == "" || root == "" {
+		return false
+	}
+	switch options.Scope {
+	case CollectionMetadataQueryScopeSelf:
+		return collectionPath == root
+	case CollectionMetadataQueryScopeChildren:
+		return collectionPath != root && path.Dir(collectionPath) == root
+	case CollectionMetadataQueryScopeDescendants:
+		return strings.HasPrefix(collectionPath, strings.TrimSuffix(root, "/")+"/")
+	default:
+		return false
+	}
+}
+
+func collectionMetadataValueMatches(value string, pattern string) bool {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" || pattern == "*" || pattern == "%" {
+		return true
+	}
+	return value == pattern
+}
+
+func (fs *testFilesystem) wasQueriedCollectionMetadata(metaName string, metaValue string) bool {
+	for _, query := range fs.queries {
+		if query.Name == metaName && query.Value == metaValue {
+			return true
+		}
+	}
+	return false
+}
+
+func (fs *testFilesystem) wasQueriedCollectionMetadataScope(metaName string, metaValue string, scope CollectionMetadataQueryScope) bool {
+	for _, query := range fs.queries {
+		if query.Name == metaName && query.Value == metaValue && query.Scope == scope {
+			return true
+		}
+	}
+	return false
+}
+
+func (fs *testFilesystem) wasQueriedDataObjectMetadata(metaName string, metaValue string) bool {
+	for _, query := range fs.dataQueries {
+		if query.Name == metaName && query.Value == metaValue {
 			return true
 		}
 	}
@@ -841,6 +961,18 @@ func (fs *testFilesystem) DeleteDataObjectMetadata(dataObjectPath string, metada
 }
 
 type metadataSearch struct {
+	Name  string
+	Value string
+}
+
+type collectionMetadataQuery struct {
+	Name      string
+	Value     string
+	IRODSPath string
+	Scope     CollectionMetadataQueryScope
+}
+
+type dataObjectMetadataQuery struct {
 	Name  string
 	Value string
 }
