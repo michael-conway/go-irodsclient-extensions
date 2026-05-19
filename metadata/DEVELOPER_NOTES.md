@@ -165,6 +165,7 @@ func (b *EntryQueryBuilder) AVU(attrib string, value string, unit string) *Entry
 func (b *EntryQueryBuilder) AVUAttrib(pattern string) *EntryQueryBuilder
 func (b *EntryQueryBuilder) AVUValue(pattern string) *EntryQueryBuilder
 func (b *EntryQueryBuilder) AVUUnit(pattern string) *EntryQueryBuilder
+func AVUConditions(attrib string, value string, unit string) []EntryCondition
 ```
 
 Convenience helper rules:
@@ -198,16 +199,9 @@ type EntryQueryDefinition struct {
 	Kinds         []EntryKind            `json:"kinds,omitempty"`
 	Scope         *EntryQueryScope       `json:"scope,omitempty"`
 	Conditions    []EntryCondition       `json:"conditions,omitempty"`
-	AVU           *AVUQuerySpec          `json:"avu,omitempty"`
 	Defaults      EntryQueryDefaults     `json:"defaults,omitempty"`
 	ReplicaPolicy ReplicaPolicy          `json:"replica_policy,omitempty"`
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
-}
-
-type AVUQuerySpec struct {
-	Attrib string `json:"attrib,omitempty"`
-	Value  string `json:"value,omitempty"`
-	Unit   string `json:"unit,omitempty"`
 }
 
 type EntryQueryScope struct {
@@ -237,6 +231,7 @@ func MarshalEntryQueryDefinition(def EntryQueryDefinition) ([]byte, error)
 func ParseEntryQueryDefinition(data []byte) (EntryQueryDefinition, error)
 func (def EntryQueryDefinition) ToEntryQuery(options EntryQueryExecutionOptions) (EntryQuery, error)
 func EntryQueryDefinitionFromQuery(query EntryQuery) EntryQueryDefinition
+func AVUConditions(attrib string, value string, unit string) []EntryCondition
 ```
 
 Canonical JSON should use the generic condition list because it can represent
@@ -265,37 +260,16 @@ all supported fields, not just AVUs:
 }
 ```
 
-The deserializer should also accept AVU shorthand for the common case:
-
-```json
-{
-  "version": "metadata.entry_query.v1",
-  "type": "avu_query",
-  "kinds": ["data_object", "collection"],
-  "avu": {
-    "attrib": "foo:bar",
-    "value": "frog*",
-    "unit": "*"
-  },
-  "defaults": {
-    "limit": 100
-  }
-}
-```
-
 Deserializer rules:
 
-- `type` should accept `entry_query` as the canonical form. `avu_query` can be
-  accepted as a backwards-compatible/convenience alias when the payload uses the
-  `avu` shorthand.
+- `type` should accept only `entry_query` as the durable JSON definition type.
 - `conditions` is the authoritative persisted representation because it can
   serialize any supported query.
-- `avu` shorthand is expanded into `conditions` using the same wildcard rules as
-  the builder.
-- Serializers should emit canonical `conditions`, not `avu` shorthand.
-- If both `avu` and `conditions` are present, parse them as one AND-only
-  condition list after expanding `avu`; serializers should not generate this
-  mixed form.
+- AVU convenience belongs in Go helpers and UI builders that emit canonical
+  `conditions`; it should not create a second REST/saved-query JSON shape.
+- `AVUConditions(attrib, value, unit)` should be used where callers want
+  shorthand wildcard handling while still producing the canonical condition
+  list. `*`, `%`, and blank omit that AVU field.
 - Unknown fields, unknown operators, and unknown kinds should return validation
   errors.
 - Boolean grouping and OR expressions are not part of the initial JSON schema.

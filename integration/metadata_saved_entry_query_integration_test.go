@@ -30,17 +30,13 @@ func TestSavedEntryQueryIntegration(t *testing.T) {
 
 	queryName := "it-saved-entry-query-" + xid.New().String()
 	saved, err := service.CreateSavedQueryWithDescription(queryName, "integration query", metadata.EntryQueryDefinition{
-		Type:  metadata.AVUQueryDefinitionType,
+		Type:  metadata.EntryQueryDefinitionType,
 		Kinds: []metadata.EntryKind{metadata.EntryKindDataObject, metadata.EntryKindCollection},
 		Scope: &metadata.EntryQueryScope{
 			Root: homePath,
 			Mode: metadata.EntryQueryScopeDescendants,
 		},
-		AVU: &metadata.AVUQuerySpec{
-			Attrib: "integration:saved-query:" + xid.New().String(),
-			Value:  "frog*",
-			Unit:   metadata.AnyUnit,
-		},
+		Conditions: metadata.AVUConditions("integration:saved-query:"+xid.New().String(), "frog*", metadata.AnyUnit),
 		Defaults: metadata.EntryQueryDefaults{
 			Limit:              25,
 			IncludeMatchedAVUs: true,
@@ -60,11 +56,11 @@ func TestSavedEntryQueryIntegration(t *testing.T) {
 	if got.Name != queryName || got.Description != "integration query" {
 		t.Fatalf("unexpected saved query metadata: %+v", got)
 	}
-	if got.Query.Type != metadata.EntryQueryDefinitionType || got.Query.AVU != nil {
+	if got.Query.Type != metadata.EntryQueryDefinitionType {
 		t.Fatalf("expected canonical entry query definition, got %+v", got.Query)
 	}
 	if len(got.Query.Conditions) != 2 {
-		t.Fatalf("expected AVU shorthand to expand to two canonical conditions, got %+v", got.Query.Conditions)
+		t.Fatalf("expected two canonical AVU conditions, got %+v", got.Query.Conditions)
 	}
 
 	updatedName := queryName + "-updated"
@@ -90,6 +86,9 @@ func TestSavedEntryQueryIntegration(t *testing.T) {
 	}
 	if updated.Name != updatedName {
 		t.Fatalf("expected updated name %q, got %q", updatedName, updated.Name)
+	}
+	if updated.ID != saved.ID {
+		t.Fatalf("expected update to preserve id %q, got %q", saved.ID, updated.ID)
 	}
 	if !updated.CreatedAt.Equal(saved.CreatedAt) {
 		t.Fatalf("expected update to preserve created_at %s, got %s", saved.CreatedAt, updated.CreatedAt)
@@ -126,6 +125,129 @@ func TestSavedEntryQueryIntegration(t *testing.T) {
 
 	if err := service.DeleteSavedQuery(saved.ID, true); err != nil {
 		t.Fatalf("delete saved entry query: %v", err)
+	}
+}
+
+func TestSavedEntryQueryDisplayDefaultsIntegration(t *testing.T) {
+	filesystem := testutil.NewIntegrationSecondaryTestFilesystem(t)
+	defer filesystem.Release()
+
+	homePath := strings.TrimSpace(filesystem.GetHomeDirPath())
+	if homePath == "" {
+		t.Fatalf("expected non-empty secondary user home path")
+	}
+
+	service, err := metadata.NewSavedEntryQueryService(&irodsSavedEntryQueryFilesystem{filesystem: filesystem}, homePath)
+	if err != nil {
+		t.Fatalf("create saved entry query service: %v", err)
+	}
+
+	defaulted, err := service.CreateSavedQueryWithDescription(" ", " ", savedEntryQueryIntegrationDefinition(homePath, "integration:saved-query-default:"+xid.New().String()))
+	if err != nil {
+		t.Fatalf("create saved query with blank display fields: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = service.DeleteSavedQuery(defaulted.ID, true)
+	})
+
+	if defaulted.Name != metadata.DefaultSavedEntryQueryName {
+		t.Fatalf("expected default saved query name %q, got %q", metadata.DefaultSavedEntryQueryName, defaulted.Name)
+	}
+	if defaulted.Description != "" {
+		t.Fatalf("expected blank saved query description, got %q", defaulted.Description)
+	}
+
+	got, err := service.GetSavedQuery(defaulted.ID)
+	if err != nil {
+		t.Fatalf("get defaulted saved query: %v", err)
+	}
+	if got.ID != defaulted.ID || got.Name != metadata.DefaultSavedEntryQueryName || got.Description != "" {
+		t.Fatalf("unexpected defaulted saved query from storage: %+v", got)
+	}
+
+	updated, err := service.PutSavedQuery(defaulted.ID, metadata.SavedEntryQueryUpdate{
+		Name:        "",
+		Description: "   ",
+		Query:       savedEntryQueryIntegrationDefinition(homePath, "integration:saved-query-default-updated:"+xid.New().String()),
+	})
+	if err != nil {
+		t.Fatalf("update saved query with blank display fields: %v", err)
+	}
+	if updated.ID != defaulted.ID {
+		t.Fatalf("expected blank-field update to preserve id %q, got %q", defaulted.ID, updated.ID)
+	}
+	if updated.Name != metadata.DefaultSavedEntryQueryName || updated.Description != "" {
+		t.Fatalf("unexpected updated default display fields: %+v", updated)
+	}
+}
+
+func TestSavedEntryQueryDuplicateDisplayNamesIntegration(t *testing.T) {
+	filesystem := testutil.NewIntegrationSecondaryTestFilesystem(t)
+	defer filesystem.Release()
+
+	homePath := strings.TrimSpace(filesystem.GetHomeDirPath())
+	if homePath == "" {
+		t.Fatalf("expected non-empty secondary user home path")
+	}
+
+	service, err := metadata.NewSavedEntryQueryService(&irodsSavedEntryQueryFilesystem{filesystem: filesystem}, homePath)
+	if err != nil {
+		t.Fatalf("create saved entry query service: %v", err)
+	}
+
+	sharedName := "it-duplicate-display-" + xid.New().String()
+	first, err := service.CreateSavedQuery(sharedName, savedEntryQueryIntegrationDefinition(homePath, "integration:saved-query-duplicate:first:"+xid.New().String()))
+	if err != nil {
+		t.Fatalf("create first duplicate display saved query: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = service.DeleteSavedQuery(first.ID, true)
+	})
+
+	second, err := service.CreateSavedQuery(sharedName, savedEntryQueryIntegrationDefinition(homePath, "integration:saved-query-duplicate:second:"+xid.New().String()))
+	if err != nil {
+		t.Fatalf("create second duplicate display saved query: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = service.DeleteSavedQuery(second.ID, true)
+	})
+
+	if first.ID == second.ID {
+		t.Fatalf("expected distinct saved query ids for duplicate display name %q", sharedName)
+	}
+	if first.Name != sharedName || second.Name != sharedName {
+		t.Fatalf("expected duplicate display names %q, got %q and %q", sharedName, first.Name, second.Name)
+	}
+
+	listed, err := service.ListSavedQueries()
+	if err != nil {
+		t.Fatalf("list saved queries with duplicate display names: %v", err)
+	}
+	found := map[string]bool{}
+	for _, summary := range listed {
+		if summary.Name != sharedName {
+			continue
+		}
+		found[summary.ID] = true
+	}
+	if !found[first.ID] || !found[second.ID] {
+		t.Fatalf("expected both duplicate-display saved queries in list, found %+v in %+v", found, listed)
+	}
+}
+
+func savedEntryQueryIntegrationDefinition(homePath string, attr string) metadata.EntryQueryDefinition {
+	return metadata.EntryQueryDefinition{
+		Kinds: []metadata.EntryKind{metadata.EntryKindDataObject},
+		Scope: &metadata.EntryQueryScope{
+			Root: homePath,
+			Mode: metadata.EntryQueryScopeDescendants,
+		},
+		Conditions: []metadata.EntryCondition{
+			{Field: metadata.FieldAVUAttrib, Op: metadata.OpEqual, Value: attr},
+		},
+		Defaults: metadata.EntryQueryDefaults{
+			Limit: 25,
+		},
 	}
 }
 

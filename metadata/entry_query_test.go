@@ -40,13 +40,16 @@ func TestEntryQueryBuilderExpandsAVUConvenienceConditions(t *testing.T) {
 	}
 }
 
-func TestParseEntryQueryDefinitionExpandsAVUShorthand(t *testing.T) {
+func TestParseEntryQueryDefinitionAcceptsCanonicalAVUConditions(t *testing.T) {
 	payload := []byte(`{
 	  "version": "metadata.entry_query.v1",
-	  "type": "avu_query",
+	  "type": "entry_query",
 	  "kinds": ["data_object", "collection"],
 	  "scope": {"root": "/tempZone/home/alice", "mode": "descendants", "path_hintable": true},
-	  "avu": {"attrib": "foo:bar", "value": "frog*", "unit": "*"},
+	  "conditions": [
+	    {"field": "avu.attrib", "op": "=", "value": "foo:bar"},
+	    {"field": "avu.value", "op": "like", "value": "frog*"}
+	  ],
 	  "defaults": {"limit": 50, "include_matched_avus": true}
 	}`)
 
@@ -58,11 +61,8 @@ func TestParseEntryQueryDefinitionExpandsAVUShorthand(t *testing.T) {
 	if definition.Type != EntryQueryDefinitionType {
 		t.Fatalf("expected canonical type %q, got %q", EntryQueryDefinitionType, definition.Type)
 	}
-	if definition.AVU != nil {
-		t.Fatalf("expected canonical definition to omit avu shorthand")
-	}
 	if len(definition.Conditions) != 2 {
-		t.Fatalf("expected expanded AVU conditions, got %+v", definition.Conditions)
+		t.Fatalf("expected canonical AVU conditions, got %+v", definition.Conditions)
 	}
 	if definition.Scope == nil || definition.Scope.Root != "/tempZone/home/alice" || !definition.Scope.PathHintable {
 		t.Fatalf("unexpected scope %+v", definition.Scope)
@@ -74,6 +74,21 @@ func TestParseEntryQueryDefinitionExpandsAVUShorthand(t *testing.T) {
 	}
 	if query.Limit != 50 || !query.IncludeMatchedAVUs {
 		t.Fatalf("unexpected query defaults limit=%d include_matched=%t", query.Limit, query.IncludeMatchedAVUs)
+	}
+}
+
+func TestParseEntryQueryDefinitionRejectsAVUShorthandJSON(t *testing.T) {
+	payload := []byte(`{
+	  "version": "metadata.entry_query.v1",
+	  "type": "avu_query",
+	  "kinds": ["data_object", "collection"],
+	  "scope": {"root": "/tempZone/home/alice", "mode": "descendants"},
+	  "avu": {"attrib": "foo:bar", "value": "frog*", "unit": "*"}
+	}`)
+
+	_, err := ParseEntryQueryDefinition(payload)
+	if !errors.Is(err, ErrInvalidEntryQuery) {
+		t.Fatalf("expected ErrInvalidEntryQuery, got %v", err)
 	}
 }
 

@@ -10,7 +10,6 @@ import (
 const (
 	EntryQueryDefinitionVersion = "metadata.entry_query.v1"
 	EntryQueryDefinitionType    = "entry_query"
-	AVUQueryDefinitionType      = "avu_query"
 )
 
 // EntryQueryDefinition is the durable JSON representation of an entry query.
@@ -20,17 +19,9 @@ type EntryQueryDefinition struct {
 	Kinds         []EntryKind            `json:"kinds,omitempty"`
 	Scope         *EntryQueryScope       `json:"scope,omitempty"`
 	Conditions    []EntryCondition       `json:"conditions,omitempty"`
-	AVU           *AVUQuerySpec          `json:"avu,omitempty"`
 	Defaults      EntryQueryDefaults     `json:"defaults,omitempty"`
 	ReplicaPolicy ReplicaPolicy          `json:"replica_policy,omitempty"`
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
-}
-
-// AVUQuerySpec is a shorthand JSON representation for common AVU queries.
-type AVUQuerySpec struct {
-	Attrib string `json:"attrib,omitempty"`
-	Value  string `json:"value,omitempty"`
-	Unit   string `json:"unit,omitempty"`
 }
 
 // EntryQueryDefaults stores execution defaults for a query definition.
@@ -140,19 +131,11 @@ func canonicalEntryQueryDefinition(definition EntryQueryDefinition) (EntryQueryD
 	}
 	switch definition.Type {
 	case EntryQueryDefinitionType:
-	case AVUQueryDefinitionType:
-		if definition.AVU == nil {
-			return EntryQueryDefinition{}, fmt.Errorf("%w: avu_query requires avu shorthand", ErrInvalidEntryQuery)
-		}
 	default:
 		return EntryQueryDefinition{}, fmt.Errorf("%w: unsupported entry query definition type %q", ErrInvalidEntryQuery, definition.Type)
 	}
 
 	conditions := append([]EntryCondition(nil), definition.Conditions...)
-	if definition.AVU != nil {
-		conditions = append(conditions, expandAVUQuerySpec(*definition.AVU)...)
-	}
-
 	query := EntryQuery{
 		Kinds:              append([]EntryKind(nil), definition.Kinds...),
 		Scope:              definition.Scope,
@@ -182,22 +165,4 @@ func canonicalEntryQueryDefinition(definition EntryQueryDefinition) (EntryQueryD
 		Metadata:      definition.Metadata,
 	}
 	return canonical, nil
-}
-
-func expandAVUQuerySpec(spec AVUQuerySpec) []EntryCondition {
-	conditions := []EntryCondition{}
-	for _, candidate := range []struct {
-		field EntryField
-		value string
-	}{
-		{field: FieldAVUAttrib, value: spec.Attrib},
-		{field: FieldAVUValue, value: spec.Value},
-		{field: FieldAVUUnit, value: spec.Unit},
-	} {
-		condition, ok := conditionFromPattern(candidate.field, candidate.value)
-		if ok {
-			conditions = append(conditions, condition)
-		}
-	}
-	return conditions
 }

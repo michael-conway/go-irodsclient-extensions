@@ -20,17 +20,13 @@ func TestSavedEntryQueryCreateGetListDelete(t *testing.T) {
 	withSavedEntryQueryNow(t, now)
 
 	definition := EntryQueryDefinition{
-		Type:  AVUQueryDefinitionType,
+		Type:  EntryQueryDefinitionType,
 		Kinds: []EntryKind{EntryKindDataObject},
 		Scope: &EntryQueryScope{
 			Root: "/tempZone/home/test1",
 			Mode: EntryQueryScopeChildren,
 		},
-		AVU: &AVUQuerySpec{
-			Attrib: "project",
-			Value:  "frog*",
-			Unit:   AnyUnit,
-		},
+		Conditions: AVUConditions("project", "frog*", AnyUnit),
 		Defaults: EntryQueryDefaults{
 			Limit:              25,
 			IncludeMatchedAVUs: true,
@@ -53,11 +49,8 @@ func TestSavedEntryQueryCreateGetListDelete(t *testing.T) {
 	if saved.Query.Type != EntryQueryDefinitionType {
 		t.Fatalf("expected canonical query type %q, got %q", EntryQueryDefinitionType, saved.Query.Type)
 	}
-	if saved.Query.AVU != nil {
-		t.Fatalf("expected canonical saved query to omit AVU shorthand, got %+v", saved.Query.AVU)
-	}
 	if len(saved.Query.Conditions) != 2 {
-		t.Fatalf("expected AVU shorthand to expand to 2 conditions, got %+v", saved.Query.Conditions)
+		t.Fatalf("expected AVU conditions, got %+v", saved.Query.Conditions)
 	}
 	if !saved.CreatedAt.Equal(now) || !saved.UpdatedAt.Equal(now) {
 		t.Fatalf("expected timestamps %s, got created=%s updated=%s", now, saved.CreatedAt, saved.UpdatedAt)
@@ -152,6 +145,9 @@ func TestSavedEntryQueryPutPreservesCreatedAtAndReplacesQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("put saved query: %v", err)
 	}
+	if updated.ID != saved.ID {
+		t.Fatalf("expected update to preserve id %q, got %q", saved.ID, updated.ID)
+	}
 	if updated.Name != "Updated" {
 		t.Fatalf("expected updated name, got %q", updated.Name)
 	}
@@ -160,6 +156,92 @@ func TestSavedEntryQueryPutPreservesCreatedAtAndReplacesQuery(t *testing.T) {
 	}
 	if !EntryQueryHasKind(mustEntryQueryFromDefinition(t, updated.Query), EntryKindCollection) {
 		t.Fatalf("expected collection query after update, got %+v", updated.Query.Kinds)
+	}
+}
+
+func TestSavedEntryQueryDefaultsBlankDisplayFields(t *testing.T) {
+	fs := newSavedEntryQueryTestFilesystem()
+	service, _ := NewSavedEntryQueryService(fs, "/tempZone/home/test1")
+
+	saved, err := service.CreateSavedQueryWithDescription(" ", " ", EntryQueryDefinition{
+		Kinds: []EntryKind{EntryKindDataObject},
+		Conditions: []EntryCondition{
+			{Field: FieldAVUAttrib, Op: OpEqual, Value: "project"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create saved query with blank display fields: %v", err)
+	}
+	if saved.Name != DefaultSavedEntryQueryName {
+		t.Fatalf("expected default name %q, got %q", DefaultSavedEntryQueryName, saved.Name)
+	}
+	if saved.Description != "" {
+		t.Fatalf("expected blank description, got %q", saved.Description)
+	}
+
+	updated, err := service.PutSavedQuery(saved.ID, SavedEntryQueryUpdate{
+		Name:        "",
+		Description: "  ",
+		Query: EntryQueryDefinition{
+			Kinds: []EntryKind{EntryKindCollection},
+			Conditions: []EntryCondition{
+				{Field: FieldAVUAttrib, Op: OpEqual, Value: "project"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("put saved query with blank display fields: %v", err)
+	}
+	if updated.ID != saved.ID {
+		t.Fatalf("expected update to preserve id %q, got %q", saved.ID, updated.ID)
+	}
+	if updated.Name != DefaultSavedEntryQueryName {
+		t.Fatalf("expected default updated name %q, got %q", DefaultSavedEntryQueryName, updated.Name)
+	}
+	if updated.Description != "" {
+		t.Fatalf("expected blank updated description, got %q", updated.Description)
+	}
+}
+
+func TestSavedEntryQueryDisplayNamesAreNotUniqueIDs(t *testing.T) {
+	fs := newSavedEntryQueryTestFilesystem()
+	service, _ := NewSavedEntryQueryService(fs, "/tempZone/home/test1")
+
+	definition := EntryQueryDefinition{
+		Kinds: []EntryKind{EntryKindDataObject},
+		Conditions: []EntryCondition{
+			{Field: FieldAVUAttrib, Op: OpEqual, Value: "project"},
+		},
+	}
+
+	first, err := service.CreateSavedQuery("Shared Name", definition)
+	if err != nil {
+		t.Fatalf("create first saved query: %v", err)
+	}
+	second, err := service.CreateSavedQuery("Shared Name", definition)
+	if err != nil {
+		t.Fatalf("create second saved query: %v", err)
+	}
+	if first.ID == second.ID {
+		t.Fatalf("expected distinct ids for saved queries with same display name %q", first.Name)
+	}
+	if first.Name != second.Name {
+		t.Fatalf("expected matching display names, got %q and %q", first.Name, second.Name)
+	}
+
+	summaries, err := service.ListSavedQueries()
+	if err != nil {
+		t.Fatalf("list saved queries: %v", err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("expected two saved queries with duplicate display names, got %+v", summaries)
+	}
+	ids := []string{summaries[0].ID, summaries[1].ID}
+	sort.Strings(ids)
+	expectedIDs := []string{first.ID, second.ID}
+	sort.Strings(expectedIDs)
+	if ids[0] != expectedIDs[0] || ids[1] != expectedIDs[1] {
+		t.Fatalf("unexpected saved query ids from list: got %+v expected %+v", ids, expectedIDs)
 	}
 }
 
@@ -201,9 +283,6 @@ func TestSavedEntryQueryValidation(t *testing.T) {
 	}
 
 	service, _ := NewSavedEntryQueryService(fs, "/tempZone/home/test1")
-	if _, err := service.CreateSavedQuery(" ", EntryQueryDefinition{}); !errors.Is(err, ErrInvalidSavedEntryQueryName) {
-		t.Fatalf("expected ErrInvalidSavedEntryQueryName, got %v", err)
-	}
 	if _, err := service.GetSavedQuery("../bad"); !errors.Is(err, ErrInvalidSavedEntryQueryID) {
 		t.Fatalf("expected ErrInvalidSavedEntryQueryID, got %v", err)
 	}
