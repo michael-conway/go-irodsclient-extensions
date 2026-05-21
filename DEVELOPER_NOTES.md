@@ -130,6 +130,46 @@ Tests should default to the configured primary and secondary test users rather t
 - Prefer deterministic helpers that are easy to test in isolation.
 - When adding live-test support, add a unit-tested config path first.
 
+## User Sync Policy
+
+`usersync` owns reusable iRODS user/group convergence behavior for REST,
+Keycloak integration, DRS certification support, and other clients that need
+repeatable sync workflows.
+
+Keep the authorization boundary clear:
+
+- callers authenticate and authorize before constructing the filesystem
+- `usersync` assumes the filesystem has the iRODS catalog authority needed to
+  perform the requested operation
+- `usersync` still enforces sync guardrails that are independent of caller
+  authority
+
+Default sync guardrails:
+
+- sync may create and manage only `rodsuser` users
+- `groupadmin` and `rodsadmin` user changes are outside sync and remain the
+  province of iRODS admin workflows such as iCommands
+- groups may be created and managed as `rodsgroup`
+- group membership sync may add/remove normal `rodsuser` accounts only
+- created users/groups are marked with `iRODS:USER_SYNCH:MANAGED=true`
+- existing users/groups are not claimed unless the caller explicitly enables
+  claim behavior
+- delete and membership-removal operations require managed AVUs unless the
+  caller explicitly relaxes the policy
+
+Use the AVU attribute family `iRODS:USER_SYNCH:<field>` for durable sync state.
+Current fields include:
+
+- `iRODS:USER_SYNCH:MANAGED`
+- `iRODS:USER_SYNCH:SOURCE`
+- `iRODS:USER_SYNCH:REALM`
+- `iRODS:USER_SYNCH:EXTERNAL_ID`
+- `iRODS:USER_SYNCH:LAST_SYNC_AT`
+- `iRODS:USER_SYNCH:LAST_PLAN_ID`
+
+Do not introduce a REST-local or tool-local state store for user sync ownership
+unless iRODS-native AVUs are demonstrably insufficient.
+
 ## Local multi-repo sync (`go.work`)
 
 Use a workspace `go.work` file for local cross-repo development instead of
