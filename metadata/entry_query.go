@@ -242,9 +242,7 @@ func (builder *EntryQueryBuilder) ReplicaPolicy(policy ReplicaPolicy) *EntryQuer
 
 // AVU adds AVU shorthand conditions. * and % omit a condition.
 func (builder *EntryQueryBuilder) AVU(attrib string, value string, unit string) *EntryQueryBuilder {
-	builder.addPatternCondition(FieldAVUAttrib, attrib)
-	builder.addPatternCondition(FieldAVUValue, value)
-	builder.addPatternCondition(FieldAVUUnit, unit)
+	builder.query.Conditions = append(builder.query.Conditions, AVUConditions(attrib, value, unit)...)
 	return builder
 }
 
@@ -269,6 +267,27 @@ func (builder *EntryQueryBuilder) AVUUnit(pattern string) *EntryQueryBuilder {
 // Build returns the query value.
 func (builder *EntryQueryBuilder) Build() EntryQuery {
 	return cloneEntryQuery(builder.query)
+}
+
+// AVUConditions returns canonical conditions for common AVU attrib/value/unit
+// patterns. Blank values, "*", and "%" omit that AVU field. Values containing
+// "*" or "%" use a like condition; all other values use equality.
+func AVUConditions(attrib string, value string, unit string) []EntryCondition {
+	conditions := []EntryCondition{}
+	for _, candidate := range []struct {
+		field EntryField
+		value string
+	}{
+		{field: FieldAVUAttrib, value: attrib},
+		{field: FieldAVUValue, value: value},
+		{field: FieldAVUUnit, value: unit},
+	} {
+		condition, ok := conditionFromPattern(candidate.field, candidate.value)
+		if ok {
+			conditions = append(conditions, condition)
+		}
+	}
+	return conditions
 }
 
 func (builder *EntryQueryBuilder) addPatternCondition(field EntryField, pattern string) {

@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	SavedEntryQueryVersion  = "metadata.saved_entry_query.v1"
-	SavedEntryQueryCategory = "metadata_queries"
-	SavedEntryQueryFileExt  = ".entry-query.json"
+	SavedEntryQueryVersion     = "metadata.saved_entry_query.v1"
+	SavedEntryQueryCategory    = "metadata_queries"
+	SavedEntryQueryFileExt     = ".entry-query.json"
+	DefaultSavedEntryQueryName = "New Query"
 )
 
 var (
@@ -57,7 +58,7 @@ type SavedEntryQuerySummary struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// SavedEntryQueryUpdate fully replaces the user-facing fields and query
+// SavedEntryQueryUpdate fully replaces the display fields and query
 // definition for an existing saved query while preserving CreatedAt.
 type SavedEntryQueryUpdate struct {
 	Name        string               `json:"name"`
@@ -360,7 +361,7 @@ func canonicalSavedEntryQuery(saved SavedEntryQuery) (SavedEntryQuery, error) {
 
 	name := strings.TrimSpace(saved.Name)
 	if name == "" {
-		return SavedEntryQuery{}, ErrInvalidSavedEntryQueryName
+		name = DefaultSavedEntryQueryName
 	}
 
 	query, err := canonicalEntryQueryDefinition(saved.Query)

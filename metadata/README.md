@@ -124,17 +124,13 @@ if err != nil {
 }
 
 saved, err := service.CreateSavedQuery("Frog data", metadata.EntryQueryDefinition{
-    Type:  metadata.AVUQueryDefinitionType,
+    Type:  metadata.EntryQueryDefinitionType,
     Kinds: []metadata.EntryKind{metadata.EntryKindDataObject},
     Scope: &metadata.EntryQueryScope{
         Root: "/tempZone/home/test1",
         Mode: metadata.EntryQueryScopeDescendants,
     },
-    AVU: &metadata.AVUQuerySpec{
-        Attrib: "project",
-        Value:  "frog*",
-        Unit:   metadata.AnyUnit,
-    },
+    Conditions: metadata.AVUConditions("project", "frog*", metadata.AnyUnit),
     Defaults: metadata.EntryQueryDefaults{Limit: 100},
 })
 if err != nil {
@@ -148,6 +144,12 @@ The service writes one JSON data object per saved query. It does not use AVU
 values as the primary storage format, so larger query definitions can be kept
 without AVU length or escaping concerns.
 
+Saved query identity is the generated query ID, not the display name. Creating
+or duplicating a saved query creates a new ID; updating an existing saved query
+preserves the ID and fully replaces the display fields and query definition.
+The display name is not required to be unique. Blank names default to
+`New Query`, and descriptions default to blank.
+
 ## Error Semantics
 
 Sentinel errors intended for `errors.Is` checks:
@@ -158,7 +160,7 @@ Sentinel errors intended for `errors.Is` checks:
 - `ErrInvalidOutputPath`
 - `ErrPathStatMissing` (filesystem returned no stat entry)
 - `ErrInvalidSavedEntryQueryID`
-- `ErrInvalidSavedEntryQueryName`
+- `ErrInvalidSavedEntryQueryName` (retained for compatibility)
 - `ErrInvalidSavedEntryQuery`
 
 Operational/storage/rendering errors are returned with context using `%w`, so

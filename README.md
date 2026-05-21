@@ -126,17 +126,13 @@ if err != nil {
 }
 
 saved, err := service.CreateSavedQuery("Frog data", metadataext.EntryQueryDefinition{
-    Type:  metadataext.AVUQueryDefinitionType,
+    Type:  metadataext.EntryQueryDefinitionType,
     Kinds: []metadataext.EntryKind{metadataext.EntryKindDataObject},
     Scope: &metadataext.EntryQueryScope{
         Root: "/tempZone/home/test1",
         Mode: metadataext.EntryQueryScopeDescendants,
     },
-    AVU: &metadataext.AVUQuerySpec{
-        Attrib: "project",
-        Value:  "frog*",
-        Unit:   metadataext.AnyUnit,
-    },
+    Conditions: metadataext.AVUConditions("project", "frog*", metadataext.AnyUnit),
     Defaults: metadataext.EntryQueryDefaults{Limit: 100},
 })
 if err != nil {
@@ -148,6 +144,12 @@ query, err := service.ToEntryQuery(saved.ID, metadataext.EntryQueryExecutionOpti
 
 Saved queries intentionally persist query definitions only. Runtime cursor
 state and page tokens are execution state and are not stored.
+
+Saved query identity is the generated query ID. The display name is editable,
+does not need to be unique, and defaults to `New Query` when blank. Descriptions
+default to blank. Updating a saved query preserves its ID and fully replaces the
+display fields and query definition; creating or duplicating a saved query
+creates a new ID.
 
 ### User Persistence, Favorites, And File Carts
 
