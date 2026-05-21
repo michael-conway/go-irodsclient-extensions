@@ -38,6 +38,8 @@ This repository is not intended to duplicate core transport, connection, or low-
 | `s3admin/irodsfs` | `go-irodsclient/fs` adapter for S3 admin workflows, including optimized metadata queries. |
 | [`searchplugin`](searchplugin/README.md) | OpenAPI-based search plugin registry and client support. |
 | [`tickets`](tickets/README.md) | Ticket creation, validation, and bearer-token lifecycle helpers. |
+| [`usersync`](usersync/README.md) | Desired-state iRODS user/group reconciliation helpers for sync controllers and REST services. |
+| `usersync/irodsfs` | `go-irodsclient/fs` adapter for user/group sync workflows. |
 | [`userpersist`](userpersist/README.md) | Shared conventions and file helpers for user-scoped `~/.irodsext` persistence. |
 | [`integration`](integration/README.md) | Build-tagged live iRODS integration tests. |
 | `internal/testutil` | Shared test configuration and integration helpers for this repository. |
