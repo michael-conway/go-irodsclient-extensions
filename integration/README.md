@@ -61,8 +61,8 @@ IrodsZone: tempZone
 IrodsAdminUser: rods
 IrodsAdminPassword: rods
 IrodsAuthScheme: native
-IrodsNegotiationPolicy: request_server_negotiation
-IrodsDefaultResource: demoResc
+IrodsNegotiationPolicy: CS_NEG_DONT_CARE
+IrodsDefaultResource: providerResc
 
 IrodsPrimaryTestUser: test1
 IrodsPrimaryTestPassword: test
