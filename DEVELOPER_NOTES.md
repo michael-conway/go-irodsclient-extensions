@@ -28,7 +28,11 @@ Use packages like:
 - `searchplugin/` for OpenAPI-driven search plugin client and registry workflows
 - `tickets/` for ticket parsing, ticket creation helpers, and ticket-related shared policy
 - `irodsuri/` for iRODS URI handling helpers
-- `transfer/` for higher-level transfer orchestration helpers
+- `metadata/` for manifests, entry AVU queries, query definitions, and saved queries
+- `userpersist/`, `favorites/`, and `filecart/` for user-scoped persisted state
+- `s3admin/` for iRODS S3 API bucket and user secret mapping workflows
+- `usersync/` for desired-state user and group reconciliation
+- `oidcverify/` and `irodsauth/` for shared auth plumbing used by service layers
 
 Do not turn this repository into a single generic helpers package.
 
@@ -129,6 +133,21 @@ Tests should default to the configured primary and secondary test users rather t
 - Keep public APIs small and explicit.
 - Prefer deterministic helpers that are easy to test in isolation.
 - When adding live-test support, add a unit-tested config path first.
+- Before tagging an alpha release, update the README stability table, run unit
+  tests, and record any experimental APIs in release notes.
+
+## Release Process
+
+Use [RELEASE.md](RELEASE.md) as the release checklist. For `v1.0.0-alpha`, the
+minimum release gate is:
+
+- README stability table is current
+- `CHANGELOG.md` has a `v1.0.0-alpha` entry
+- `go test ./...` passes
+- `git diff --check` passes
+
+Run `go test -tags=integration ./integration/...` when an iRODS grid is
+available through `GOEXT_TEST_CONFIG_ENV`.
 
 ## User Sync Policy
 

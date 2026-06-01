@@ -46,7 +46,7 @@ Set:
 
 Use the sample config:
 
-* [integration/extensions-integration.sample.yaml](/Users/conwaymc/Documents/workspace-gabble/go-irodsclient-extensions/integration/extensions-integration.sample.yaml)
+* [extensions-integration.sample.yaml](extensions-integration.sample.yaml)
 
 The sample is intended to match the host-facing defaults from
 `irods-grid-stack`. Keep it aligned with `irods-go-rest/e2e/` and

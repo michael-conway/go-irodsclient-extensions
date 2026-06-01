@@ -151,20 +151,6 @@ func (v *Verifier) introspectToken(ctx context.Context, accessToken string) (Int
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := v.httpClient.Do(req)
-	if err != nil {
-		return Introspection{}, fmt.Errorf("request keycloak introspection: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			return Introspection{}, ErrUnauthorized
-		}
-		return Introspection{}, fmt.Errorf("keycloak introspection failed: %s", resp.Status)
-	}
 
 	var payload struct {
 		Active            bool   `json:"active"`
@@ -175,8 +161,8 @@ func (v *Verifier) introspectToken(ctx context.Context, accessToken string) (Int
 		Audience          any    `json:"aud"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return Introspection{}, fmt.Errorf("decode keycloak introspection response: %w", err)
+	if err := v.doJSON(req, "introspection", &payload); err != nil {
+		return Introspection{}, err
 	}
 
 	return Introspection{
@@ -197,34 +183,43 @@ func (v *Verifier) userInfo(ctx context.Context, accessToken string) (UserInfo, 
 	}
 
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := v.httpClient.Do(req)
-	if err != nil {
-		return UserInfo{}, fmt.Errorf("request keycloak userinfo: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			return UserInfo{}, ErrUnauthorized
-		}
-		return UserInfo{}, fmt.Errorf("keycloak userinfo failed: %s", resp.Status)
-	}
 
 	var payload struct {
 		PreferredUsername string `json:"preferred_username"`
 		Sub               string `json:"sub"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return UserInfo{}, fmt.Errorf("decode keycloak userinfo response: %w", err)
+	if err := v.doJSON(req, "userinfo", &payload); err != nil {
+		return UserInfo{}, err
 	}
 
 	return UserInfo{
 		PreferredUsername: strings.TrimSpace(payload.PreferredUsername),
 		Subject:           strings.TrimSpace(payload.Sub),
 	}, nil
+}
+
+func (v *Verifier) doJSON(req *http.Request, operation string, target any) error {
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := v.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request keycloak %s: %w", operation, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return ErrUnauthorized
+		}
+		return fmt.Errorf("keycloak %s failed: %s", operation, resp.Status)
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+		return fmt.Errorf("decode keycloak %s response: %w", operation, err)
+	}
+
+	return nil
 }
 
 func audienceValues(raw any) []string {
