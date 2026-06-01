@@ -7,18 +7,30 @@ The intent of this repository is to hold reusable packages that sit above the ba
 ## Install
 
 ```bash
-go get github.com/michael-conway/go-irodsclient-extensions
+go get github.com/michael-conway/go-irodsclient-extensions@v1.0.0-alpha
 ```
+
+The module path is unchanged for `v1` releases:
+
+```go
+import "github.com/michael-conway/go-irodsclient-extensions/metadata"
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes and [RELEASE.md](RELEASE.md)
+for the release checklist.
 
 ## Scope
 
 This repository is for extensions such as:
 
 - metadata and AVU helpers
+- OIDC bearer token verification and iRODS account construction
 - ticket lifecycle helpers
+- user-scoped persistence, favorites, and file carts
+- S3 API administration helpers
+- desired-state user/group reconciliation
 - higher-level search and discovery helpers
 - path and naming utilities
-- transfer orchestration helpers
 - shared client-side workflows that are too opinionated for the base client, but broadly useful across consumers
 
 This repository is not intended to duplicate core transport, connection, or low-level filesystem behavior already provided by `go-irodsclient`.
@@ -31,13 +43,17 @@ This repository is not intended to duplicate core transport, connection, or low-
 | [`favorites`](favorites/README.md) | User-scoped favorite path lifecycle under `~/.irodsext/favorites`. |
 | [`filecart`](filecart/README.md) | User-scoped file cart lifecycle and AVU-backed cart entries under `~/.irodsext/filecarts`. |
 | [`ignore`](ignore/README.md) | Ignore-rule parsing and path matching for iRODS-like path trees. |
+| [`irodsauth`](irodsauth/README.md) | Shared request-auth to `IRODSAccount` construction helpers. |
 | [`irodsuri`](irodsuri/README.md) | iRODS URI parsing and formatting helpers. |
 | [`metadata`](metadata/README.md) | Metadata manifests, unified entry AVU/file queries, JSON query definitions, and saved user queries. |
 | `metadata/irodsfs` | `go-irodsclient/fs` adapter for metadata entry queries. |
+| [`oidcverify`](oidcverify/README.md) | OIDC bearer token introspection and userinfo verification helpers. |
 | [`s3admin`](s3admin/README.md) | AVU-backed iRODS S3 API bucket and user-key mapping workflows. |
 | `s3admin/irodsfs` | `go-irodsclient/fs` adapter for S3 admin workflows, including optimized metadata queries. |
 | [`searchplugin`](searchplugin/README.md) | OpenAPI-based search plugin registry and client support. |
 | [`tickets`](tickets/README.md) | Ticket creation, validation, and bearer-token lifecycle helpers. |
+| [`usersync`](usersync/README.md) | Desired-state iRODS user/group reconciliation helpers for sync controllers and REST services. |
+| `usersync/irodsfs` | `go-irodsclient/fs` adapter for user/group sync workflows. |
 | [`userpersist`](userpersist/README.md) | Shared conventions and file helpers for user-scoped `~/.irodsext` persistence. |
 | [`integration`](integration/README.md) | Build-tagged live iRODS integration tests. |
 | `internal/testutil` | Shared test configuration and integration helpers for this repository. |
@@ -253,10 +269,12 @@ _ = cues
 
 ## Public API Stability (Alpha)
 
-Stability levels used in this repository:
+Current planned release: `v1.0.0-alpha`.
 
-- `alpha-stable`: package is intended for alpha consumption; minor breaking changes may occur with release-note notice
-- `experimental`: package API may change at any time
+Stability levels used for alpha release planning:
+
+- `alpha-stable`: intended for alpha consumers; breaking changes should be limited and called out in release notes
+- `experimental`: useful code, but the API may change without compatibility guarantees
 
 Intended consumer categories:
 
@@ -271,14 +289,18 @@ Intended consumer categories:
 | `favorites` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
 | `filecart` | experimental | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | API may change at any time; no direct replacement yet |
 | `ignore` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
+| `irodsauth` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `other Go apps` | Shared Basic, bearer, and ticket account construction |
 | `irodsuri` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
 | `metadata` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
 | `metadata/irodsfs` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Adapter for `go-irodsclient/fs` metadata query execution |
+| `oidcverify` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `other Go apps` | Shared OIDC introspection and userinfo verifier |
 | `s3admin` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
 | `s3admin/irodsfs` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Adapter for `go-irodsclient/fs` S3 admin workflows |
 | `searchplugin` | experimental | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | API may change at any time |
 | `tickets` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
 | `userpersist` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `drscmd`, `other Go apps` | Active |
+| `usersync` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `other Go apps` | Desired-state user and group reconciliation |
+| `usersync/irodsfs` | alpha-stable | `irods-go-rest`, `irods-go-drs`, `other Go apps` | Adapter for `go-irodsclient/fs` user and group sync |
 
 ## Development
 
@@ -286,16 +308,17 @@ Intended consumer categories:
 go test ./...
 ```
 
-Integration tests are build-tagged and require `GOEXT_TEST_CONFIG_ENV` to point
-at a live test config:
+Integration tests are build-tagged and require a live iRODS grid plus
+`GOEXT_TEST_CONFIG_ENV`:
 
 ```bash
 GOEXT_TEST_CONFIG_ENV=integration/extensions-integration.sample.yaml go test -tags=integration ./integration/...
 ```
 
-## Design rules
+## Design Rules
 
 - Keep low-level protocol and filesystem responsibilities in `go-irodsclient`.
 - Put cross-client workflows and reusable higher-level behavior here.
 - Prefer small focused packages over one large omnibus helper package.
-- Avoid dragging application-specific policy into shared packages unless it is clearly reusable.
+- Avoid application-specific policy unless it is clearly reusable across
+  consumers.

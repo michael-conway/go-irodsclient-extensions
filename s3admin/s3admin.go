@@ -573,11 +573,7 @@ func (service *S3UserMappingService) UpdateUserSecretKeyForHomeAndUser(userHomeP
 // StoreUserSecretKey stores or replaces a user S3 API secret key and refreshes
 // the user mapping file.
 func (service *S3UserMappingService) StoreUserSecretKey(account *irodstypes.IRODSAccount, secretKey string) (S3UserMapping, error) {
-	userID, err := s3UserIDFromAccount(account)
-	if err != nil {
-		return S3UserMapping{}, err
-	}
-	userHomePath, err := s3UserHomePath(account)
+	userID, userHomePath, err := s3UserIDAndHomePath(account)
 	if err != nil {
 		return S3UserMapping{}, err
 	}
@@ -621,11 +617,7 @@ func (service *S3UserMappingService) StoreUserSecretKeyForHomeAndUser(userHomePa
 // GenerateAndStoreUserSecretKey generates, stores, and maps a new user S3 API
 // secret key.
 func (service *S3UserMappingService) GenerateAndStoreUserSecretKey(account *irodstypes.IRODSAccount) (S3UserMapping, error) {
-	userID, err := s3UserIDFromAccount(account)
-	if err != nil {
-		return S3UserMapping{}, err
-	}
-	userHomePath, err := s3UserHomePath(account)
+	userID, userHomePath, err := s3UserIDAndHomePath(account)
 	if err != nil {
 		return S3UserMapping{}, err
 	}
@@ -644,11 +636,7 @@ func (service *S3UserMappingService) GenerateAndStoreUserSecretKeyForHomeAndUser
 
 // GetUserSecretKey retrieves the user's current S3 API secret key from iRODS.
 func (service *S3UserMappingService) GetUserSecretKey(account *irodstypes.IRODSAccount) (S3UserMapping, error) {
-	userID, err := s3UserIDFromAccount(account)
-	if err != nil {
-		return S3UserMapping{}, err
-	}
-	userHomePath, err := s3UserHomePath(account)
+	userID, userHomePath, err := s3UserIDAndHomePath(account)
 	if err != nil {
 		return S3UserMapping{}, err
 	}
@@ -682,11 +670,7 @@ func (service *S3UserMappingService) ListUserSecretMappingsFromAVUs() ([]S3UserM
 // DeleteUserSecretKey deletes the user's S3 API secret key and removes it from
 // the user mapping file.
 func (service *S3UserMappingService) DeleteUserSecretKey(account *irodstypes.IRODSAccount) error {
-	userID, err := s3UserIDFromAccount(account)
-	if err != nil {
-		return err
-	}
-	userHomePath, err := s3UserHomePath(account)
+	userID, userHomePath, err := s3UserIDAndHomePath(account)
 	if err != nil {
 		return err
 	}
@@ -715,6 +699,18 @@ func (service *S3UserMappingService) DeleteUserSecretKeyForHomeAndUser(userHomeP
 	}
 	delete(mapping, userID)
 	return service.mappingFile.replaceLocked(mapping)
+}
+
+func s3UserIDAndHomePath(account *irodstypes.IRODSAccount) (string, string, error) {
+	userID, err := s3UserIDFromAccount(account)
+	if err != nil {
+		return "", "", err
+	}
+	userHomePath, err := s3UserHomePath(account)
+	if err != nil {
+		return "", "", err
+	}
+	return userID, userHomePath, nil
 }
 
 // RefreshUserMapping rewrites the user mapping file from all marked S3 user

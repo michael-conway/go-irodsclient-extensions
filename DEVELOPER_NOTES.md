@@ -28,7 +28,11 @@ Use packages like:
 - `searchplugin/` for OpenAPI-driven search plugin client and registry workflows
 - `tickets/` for ticket parsing, ticket creation helpers, and ticket-related shared policy
 - `irodsuri/` for iRODS URI handling helpers
-- `transfer/` for higher-level transfer orchestration helpers
+- `metadata/` for manifests, entry AVU queries, query definitions, and saved queries
+- `userpersist/`, `favorites/`, and `filecart/` for user-scoped persisted state
+- `s3admin/` for iRODS S3 API bucket and user secret mapping workflows
+- `usersync/` for desired-state user and group reconciliation
+- `oidcverify/` and `irodsauth/` for shared auth plumbing used by service layers
 
 Do not turn this repository into a single generic helpers package.
 
@@ -97,8 +101,8 @@ IrodsZone: tempZone
 IrodsAdminUser: rods
 IrodsAdminPassword: rods
 IrodsAuthScheme: native
-IrodsNegotiationPolicy: request_server_negotiation
-IrodsDefaultResource: demoResc
+IrodsNegotiationPolicy: CS_NEG_DONT_CARE
+IrodsDefaultResource: providerResc
 IrodsPrimaryTestUser: test1
 IrodsPrimaryTestPassword: test
 IrodsSecondaryTestUser: test2
@@ -129,6 +133,61 @@ Tests should default to the configured primary and secondary test users rather t
 - Keep public APIs small and explicit.
 - Prefer deterministic helpers that are easy to test in isolation.
 - When adding live-test support, add a unit-tested config path first.
+- Before tagging an alpha release, update the README stability table, run unit
+  tests, and record any experimental APIs in release notes.
+
+## Release Process
+
+Use [RELEASE.md](RELEASE.md) as the release checklist. For `v1.0.0-alpha`, the
+minimum release gate is:
+
+- README stability table is current
+- `CHANGELOG.md` has a `v1.0.0-alpha` entry
+- `go test ./...` passes
+- `git diff --check` passes
+
+Run `go test -tags=integration ./integration/...` when an iRODS grid is
+available through `GOEXT_TEST_CONFIG_ENV`.
+
+## User Sync Policy
+
+`usersync` owns reusable iRODS user/group convergence behavior for REST,
+Keycloak integration, DRS certification support, and other clients that need
+repeatable sync workflows.
+
+Keep the authorization boundary clear:
+
+- callers authenticate and authorize before constructing the filesystem
+- `usersync` assumes the filesystem has the iRODS catalog authority needed to
+  perform the requested operation
+- `usersync` still enforces sync guardrails that are independent of caller
+  authority
+
+Default sync guardrails:
+
+- sync may create and manage only `rodsuser` users
+- `groupadmin` and `rodsadmin` user changes are outside sync and remain the
+  province of iRODS admin workflows such as iCommands
+- groups may be created and managed as `rodsgroup`
+- group membership sync may add/remove normal `rodsuser` accounts only
+- created users/groups are marked with `iRODS:USER_SYNCH:MANAGED=true`
+- existing users/groups are not claimed unless the caller explicitly enables
+  claim behavior
+- delete and membership-removal operations require managed AVUs unless the
+  caller explicitly relaxes the policy
+
+Use the AVU attribute family `iRODS:USER_SYNCH:<field>` for durable sync state.
+Current fields include:
+
+- `iRODS:USER_SYNCH:MANAGED`
+- `iRODS:USER_SYNCH:SOURCE`
+- `iRODS:USER_SYNCH:REALM`
+- `iRODS:USER_SYNCH:EXTERNAL_ID`
+- `iRODS:USER_SYNCH:LAST_SYNC_AT`
+- `iRODS:USER_SYNCH:LAST_PLAN_ID`
+
+Do not introduce a REST-local or tool-local state store for user sync ownership
+unless iRODS-native AVUs are demonstrably insufficient.
 
 ## Local multi-repo sync (`go.work`)
 
