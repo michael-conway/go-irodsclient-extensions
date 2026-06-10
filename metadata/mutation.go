@@ -8,6 +8,8 @@ import (
 
 var (
 	ErrInvalidAVUReplacement = errors.New("invalid avu replacement")
+	ErrMissingAVUUpdate      = errors.New("invalid avu update")
+	ErrAVUNotFound           = errors.New("avu not found")
 	ErrMissingAVUMutator     = errors.New("missing avu mutator")
 )
 
@@ -19,8 +21,15 @@ type AVUReplacement struct {
 	To   AVUStat
 }
 
+// AVUUpdateByID describes a caller-facing AVU update by iRODS AVU row ID.
+type AVUUpdateByID struct {
+	ID int64
+	To AVUStat
+}
+
 // AVUMutator is the minimal metadata mutation API required for AVU replacement.
 type AVUMutator interface {
+	GetPathAVUByID(irodsPath string, id int64) (AVUStat, error)
 	ReplacePathAVU(irodsPath string, replacement AVUReplacement) (AVUStat, error)
 }
 
@@ -36,6 +45,32 @@ func NewMutationService(mutator AVUMutator) (*MutationService, error) {
 	}
 
 	return &MutationService{mutator: mutator}, nil
+}
+
+// ReplacePathAVUByID replaces one AVU selected by iRODS AVU row ID.
+func (service *MutationService) ReplacePathAVUByID(irodsPath string, update AVUUpdateByID) (AVUStat, error) {
+	irodsPath = normalizeIRODSPath(irodsPath)
+	if irodsPath == "" {
+		return AVUStat{}, ErrInvalidIRODSPath
+	}
+	if update.ID <= 0 {
+		return AVUStat{}, fmt.Errorf("%w: id must be positive", ErrMissingAVUUpdate)
+	}
+
+	target := normalizeAVUStat(update.To)
+	if target.Name == "" || target.Value == "" {
+		return AVUStat{}, fmt.Errorf("%w: to name and value are required", ErrInvalidAVUReplacement)
+	}
+
+	current, err := service.mutator.GetPathAVUByID(irodsPath, update.ID)
+	if err != nil {
+		if errors.Is(err, ErrAVUNotFound) {
+			return AVUStat{}, fmt.Errorf("%w: id %d on path %q", ErrAVUNotFound, update.ID, irodsPath)
+		}
+		return AVUStat{}, fmt.Errorf("get AVU id %d for %q: %w", update.ID, irodsPath, err)
+	}
+
+	return service.ReplacePathAVU(irodsPath, AVUReplacement{From: current, To: target})
 }
 
 // ReplacePathAVU replaces one AVU on an iRODS path and returns the replacement row.

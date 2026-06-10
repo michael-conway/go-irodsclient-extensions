@@ -56,6 +56,7 @@ func TestBuildCollectionEntryQueryRequestUsesChildrenScope(t *testing.T) {
 	assertCondition(t, request, common.ICAT_COLUMN_COLL_PARENT_NAME, "= '/tempZone/home/alice'")
 	assertCondition(t, request, common.ICAT_COLUMN_META_COLL_ATTR_NAME, "= 'project'")
 	assertSelect(t, request, common.ICAT_COLUMN_COLL_ID)
+	assertSelect(t, request, common.ICAT_COLUMN_META_COLL_ATTR_ID)
 	assertSelect(t, request, common.ICAT_COLUMN_META_COLL_ATTR_VALUE)
 }
 
@@ -211,4 +212,26 @@ func sqlResult(column common.ICATColumnNumber, values ...string) message.IRODSMe
 
 func irodsTime(value time.Time) string {
 	return strconv.FormatInt(value.Unix(), 10)
+}
+
+func TestBuildDataObjectEntryQueryRequestIncludesMatchedAVUID(t *testing.T) {
+	conn := testConnection(t)
+	query, err := metadata.NormalizeEntryQuery(metadata.NewEntryQuery().
+		DataObjects().
+		Scope("/tempZone/home/alice", metadata.EntryQueryScopeDescendants).
+		AVU("source", "test", metadata.AnyUnit).
+		IncludeMatchedAVUs(true).
+		Build())
+	if err != nil {
+		t.Fatalf("normalize query: %v", err)
+	}
+
+	request, err := buildDataObjectEntryQueryRequest(conn, query, 0, true)
+	if err != nil {
+		t.Fatalf("build data object request: %v", err)
+	}
+
+	assertSelect(t, request, common.ICAT_COLUMN_META_DATA_ATTR_ID)
+	assertSelect(t, request, common.ICAT_COLUMN_META_DATA_ATTR_NAME)
+	assertSelect(t, request, common.ICAT_COLUMN_META_DATA_ATTR_VALUE)
 }

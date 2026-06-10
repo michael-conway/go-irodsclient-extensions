@@ -46,6 +46,7 @@ func (adapter *Adapter) ReplacePathAVU(irodsPath string, replacement metadata.AV
 	if err := replaceMetadata(conn, itemType, irodsPath, oldMetadata, newMetadata); err != nil {
 		return metadata.AVUStat{}, err
 	}
+	adapter.filesystem.InvalidateCacheForPath(irodsPath)
 
 	metadataList, err := adapter.ListMetadata(irodsPath)
 	if err != nil {
@@ -55,7 +56,7 @@ func (adapter *Adapter) ReplacePathAVU(irodsPath string, replacement metadata.AV
 		return updated, nil
 	}
 
-	return metadata.AVUStat{}, fmt.Errorf("metadata replacement completed but replacement AVU was not found for path %q", irodsPath)
+	return metadata.AVUStat{}, fmt.Errorf("metadata replacement completed but replacement AVU was not found for path %q target %+v metadata %+v", irodsPath, normalized.To, metadataList)
 }
 
 func replaceMetadata(conn *connection.IRODSConnection, itemType irodstypes.IRODSMetaItemType, itemName string, oldMetadata *irodstypes.IRODSMeta, newMetadata *irodstypes.IRODSMeta) error {

@@ -454,6 +454,7 @@ func buildCollectionEntryQueryRequest(conn *connection.IRODSConnection, query me
 	request.AddSelect(common.ICAT_COLUMN_COLL_CREATE_TIME, 1)
 	request.AddSelect(common.ICAT_COLUMN_COLL_MODIFY_TIME, 1)
 	if includeAVUs {
+		request.AddSelect(common.ICAT_COLUMN_META_COLL_ATTR_ID, 1)
 		request.AddSelect(common.ICAT_COLUMN_META_COLL_ATTR_NAME, 1)
 		request.AddSelect(common.ICAT_COLUMN_META_COLL_ATTR_VALUE, 1)
 		request.AddSelect(common.ICAT_COLUMN_META_COLL_ATTR_UNITS, 1)
@@ -494,6 +495,7 @@ func buildDataObjectEntryQueryRequest(conn *connection.IRODSConnection, query me
 		request.AddSelect(common.ICAT_COLUMN_D_ACCESS_TIME, 1)
 	}
 	if includeAVUs {
+		request.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_ID, 1)
 		request.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_NAME, 1)
 		request.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_VALUE, 1)
 		request.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_UNITS, 1)
@@ -691,6 +693,12 @@ func parseCollectionQueryRows(queryResult message.IRODSMessageQueryResponse, inc
 					return nil, fmt.Errorf("failed to parse collection modify time %q: %w", value, err)
 				}
 				rows[row].collection.ModifyTime = modifyTime
+			case int(common.ICAT_COLUMN_META_COLL_ATTR_ID):
+				id, err := strconv.ParseInt(value, 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse collection AVU id %q: %w", value, err)
+				}
+				rows[row].avu.ID = id
 			case int(common.ICAT_COLUMN_META_COLL_ATTR_NAME):
 				rows[row].avu.Name = value
 			case int(common.ICAT_COLUMN_META_COLL_ATTR_VALUE):
@@ -833,6 +841,12 @@ func parseDataObjectQueryRows(queryResult message.IRODSMessageQueryResponse, inc
 					return nil, fmt.Errorf("failed to parse data object access time %q: %w", value, err)
 				}
 				rows[row].dataObject.Replicas[0].AccessTime = accessTime
+			case int(common.ICAT_COLUMN_META_DATA_ATTR_ID):
+				id, err := strconv.ParseInt(value, 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse data object AVU id %q: %w", value, err)
+				}
+				rows[row].avu.ID = id
 			case int(common.ICAT_COLUMN_META_DATA_ATTR_NAME):
 				rows[row].avu.Name = value
 			case int(common.ICAT_COLUMN_META_DATA_ATTR_VALUE):

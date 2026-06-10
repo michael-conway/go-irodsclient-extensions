@@ -87,6 +87,7 @@ func (adapter *Adapter) ListMetadata(irodsPath string) ([]metadata.AVUStat, erro
 		}
 
 		result = append(result, metadata.AVUStat{
+			ID:         avu.AVUID,
 			Name:       avu.Name,
 			Value:      avu.Value,
 			Units:      avu.Units,
@@ -144,4 +145,9 @@ func zoneFromPath(irodsPath string) string {
 		return ""
 	}
 	return strings.TrimSpace(parts[0])
+}
+
+// ListPathAVUs returns AVUs attached to an iRODS path.
+func (adapter *Adapter) ListPathAVUs(irodsPath string) ([]metadata.AVUStat, error) {
+	return adapter.ListMetadata(irodsPath)
 }

@@ -45,8 +45,8 @@ func TestReplaceMetadataRequestUsesModOperationAndFromToTuples(t *testing.T) {
 
 func TestFindAVUStatMatchesNameValueUnits(t *testing.T) {
 	metadataList := []metadata.AVUStat{
-		{Name: "source", Value: "before", Units: "fixture"},
-		{Name: "source", Value: "after", Units: "fixture"},
+		{ID: 41, Name: "source", Value: "before", Units: "fixture"},
+		{ID: 42, Name: "source", Value: "after", Units: "fixture"},
 	}
 
 	matched, ok := findAVUStat(metadataList, metadata.AVUStat{Name: "source", Value: "after", Units: "fixture"})

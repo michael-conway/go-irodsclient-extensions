@@ -5,6 +5,59 @@ import (
 	"testing"
 )
 
+func TestMutationServiceReplacePathAVUByIDResolvesSourceAndDelegates(t *testing.T) {
+	mutator := &testAVUMutator{avu: AVUStat{ID: 42, Name: " source ", Value: "before", Units: "unit"}}
+	service, err := NewMutationService(mutator)
+	if err != nil {
+		t.Fatalf("new mutation service: %v", err)
+	}
+
+	updated, err := service.ReplacePathAVUByID(" /tempZone/home/test1/object.txt/ ", AVUUpdateByID{
+		ID: 42,
+		To: AVUStat{Name: " source ", Value: " after ", Units: " unit "},
+	})
+	if err != nil {
+		t.Fatalf("replace path AVU by ID: %v", err)
+	}
+
+	if mutator.path != "/tempZone/home/test1/object.txt" {
+		t.Fatalf("expected normalized path, got %q", mutator.path)
+	}
+	if mutator.replacement.From.ID != 42 || mutator.replacement.From.Name != "source" || mutator.replacement.From.Value != "before" || mutator.replacement.From.Units != "unit" {
+		t.Fatalf("expected source AVU resolved by ID, got %+v", mutator.replacement.From)
+	}
+	if mutator.replacement.To.Name != "source" || mutator.replacement.To.Value != " after " || mutator.replacement.To.Units != " unit " {
+		t.Fatalf("expected normalized target AVU name, got %+v", mutator.replacement.To)
+	}
+	if updated.Value != " after " {
+		t.Fatalf("expected returned replacement, got %+v", updated)
+	}
+}
+
+func TestMutationServiceReplacePathAVUByIDRejectsMissingID(t *testing.T) {
+	service, err := NewMutationService(&testAVUMutator{})
+	if err != nil {
+		t.Fatalf("new mutation service: %v", err)
+	}
+
+	_, err = service.ReplacePathAVUByID("/tempZone/home/test1/object.txt", AVUUpdateByID{To: AVUStat{Name: "source", Value: "after"}})
+	if !errors.Is(err, ErrMissingAVUUpdate) {
+		t.Fatalf("expected ErrMissingAVUUpdate, got %v", err)
+	}
+}
+
+func TestMutationServiceReplacePathAVUByIDReturnsNotFound(t *testing.T) {
+	service, err := NewMutationService(&testAVUMutator{getErr: ErrAVUNotFound})
+	if err != nil {
+		t.Fatalf("new mutation service: %v", err)
+	}
+
+	_, err = service.ReplacePathAVUByID("/tempZone/home/test1/object.txt", AVUUpdateByID{ID: 42, To: AVUStat{Name: "source", Value: "after"}})
+	if !errors.Is(err, ErrAVUNotFound) {
+		t.Fatalf("expected ErrAVUNotFound, got %v", err)
+	}
+}
+
 func TestMutationServiceReplacePathAVUNormalizesAndDelegates(t *testing.T) {
 	mutator := &testAVUMutator{}
 	service, err := NewMutationService(mutator)
@@ -79,7 +132,17 @@ func TestNewMutationServiceRequiresMutator(t *testing.T) {
 
 type testAVUMutator struct {
 	path        string
+	avu         AVUStat
+	getErr      error
 	replacement AVUReplacement
+}
+
+func (mutator *testAVUMutator) GetPathAVUByID(irodsPath string, id int64) (AVUStat, error) {
+	mutator.path = irodsPath
+	if mutator.getErr != nil {
+		return AVUStat{}, mutator.getErr
+	}
+	return mutator.avu, nil
 }
 
 func (mutator *testAVUMutator) ReplacePathAVU(irodsPath string, replacement AVUReplacement) (AVUStat, error) {

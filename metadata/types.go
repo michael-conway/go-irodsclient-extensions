@@ -36,6 +36,7 @@ type ReplicaStat struct {
 
 // AVUStat contains AVU details read from iRODS metadata.
 type AVUStat struct {
+	ID         int64
 	Name       string
 	Value      string
 	Units      string

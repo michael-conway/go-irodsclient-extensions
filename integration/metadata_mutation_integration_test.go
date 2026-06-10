@@ -59,7 +59,7 @@ func TestMetadataReplacePathAVUIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("replace file AVU: %v", err)
 		}
-		if updated.Name != attribute || updated.Value != "after" || updated.Units != "integration" {
+		if updated.ID <= 0 || updated.Name != attribute || updated.Value != "after" || updated.Units != "integration" {
 			t.Fatalf("unexpected replacement AVU: %+v", updated)
 		}
 
@@ -72,6 +72,51 @@ func TestMetadataReplacePathAVUIntegration(t *testing.T) {
 		}
 		if !hasIRODSAVU(metadataList, attribute, "after", "integration") {
 			t.Fatalf("expected replacement file AVU, got %+v", metadataList)
+		}
+	})
+
+	t.Run("data object by id", func(t *testing.T) {
+		attribute := "it:replace:file:" + xid.New().String()
+		if err := filesystem.AddMetadata(filePath, attribute, "before", "integration"); err != nil {
+			t.Fatalf("add file metadata for ID replacement: %v", err)
+		}
+
+		metadataList, err := filesystem.ListMetadata(filePath)
+		if err != nil {
+			t.Fatalf("list file metadata before ID replacement: %v", err)
+		}
+
+		var avuID int64
+		for _, avu := range metadataList {
+			if avu != nil && avu.Name == attribute && avu.Value == "before" && avu.Units == "integration" {
+				avuID = avu.AVUID
+				break
+			}
+		}
+		if avuID <= 0 {
+			t.Fatalf("expected iRODS AVU ID for replacement source, got %+v", metadataList)
+		}
+
+		updated, err := service.ReplacePathAVUByID(filePath, metadata.AVUUpdateByID{
+			ID: avuID,
+			To: metadata.AVUStat{Name: attribute, Value: "after", Units: "integration"},
+		})
+		if err != nil {
+			t.Fatalf("replace file AVU by ID: %v", err)
+		}
+		if updated.ID <= 0 || updated.Name != attribute || updated.Value != "after" || updated.Units != "integration" {
+			t.Fatalf("unexpected ID replacement AVU: %+v", updated)
+		}
+
+		metadataList, err = filesystem.ListMetadata(filePath)
+		if err != nil {
+			t.Fatalf("list file metadata after ID replacement: %v", err)
+		}
+		if hasIRODSAVU(metadataList, attribute, "before", "integration") {
+			t.Fatalf("expected old file AVU to be absent after ID replacement, got %+v", metadataList)
+		}
+		if !hasIRODSAVU(metadataList, attribute, "after", "integration") {
+			t.Fatalf("expected replacement file AVU after ID replacement, got %+v", metadataList)
 		}
 	})
 
@@ -88,7 +133,7 @@ func TestMetadataReplacePathAVUIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("replace collection AVU: %v", err)
 		}
-		if updated.Name != attribute || updated.Value != "after" || updated.Units != "integration" {
+		if updated.ID <= 0 || updated.Name != attribute || updated.Value != "after" || updated.Units != "integration" {
 			t.Fatalf("unexpected replacement AVU: %+v", updated)
 		}
 
