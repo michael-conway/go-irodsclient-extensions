@@ -448,17 +448,18 @@ func countDataObjectBranch(conn *connection.IRODSConnection, query metadata.Entr
 func buildCollectionEntryQueryRequest(conn *connection.IRODSConnection, query metadata.EntryQuery, continueIndex int, includeAVUs bool) (*message.IRODSMessageQueryRequest, error) {
 	request := message.NewIRODSMessageQueryRequest(common.MaxQueryRows, continueIndex, 0, 0)
 	request.AddKeyVal(common.ZONE_KW, conn.GetAccount().ClientZone)
-	request.AddSelect(common.ICAT_COLUMN_COLL_ID, 1)
-	request.AddSelect(common.ICAT_COLUMN_COLL_NAME, 1)
-	request.AddSelect(common.ICAT_COLUMN_COLL_OWNER_NAME, 1)
-	request.AddSelect(common.ICAT_COLUMN_COLL_CREATE_TIME, 1)
-	request.AddSelect(common.ICAT_COLUMN_COLL_MODIFY_TIME, 1)
+	request.AddSelect(common.ICAT_COLUMN_COLL_ID)
+	request.AddSelect(common.ICAT_COLUMN_COLL_NAME)
+	request.AddSelect(common.ICAT_COLUMN_COLL_OWNER_NAME)
+	request.AddSelect(common.ICAT_COLUMN_COLL_CREATE_TIME)
+	request.AddSelect(common.ICAT_COLUMN_COLL_MODIFY_TIME)
 	if includeAVUs {
-		request.AddSelect(common.ICAT_COLUMN_META_COLL_ATTR_NAME, 1)
-		request.AddSelect(common.ICAT_COLUMN_META_COLL_ATTR_VALUE, 1)
-		request.AddSelect(common.ICAT_COLUMN_META_COLL_ATTR_UNITS, 1)
-		request.AddSelect(common.ICAT_COLUMN_META_COLL_CREATE_TIME, 1)
-		request.AddSelect(common.ICAT_COLUMN_META_COLL_MODIFY_TIME, 1)
+		request.AddSelect(common.ICAT_COLUMN_META_COLL_ATTR_ID)
+		request.AddSelect(common.ICAT_COLUMN_META_COLL_ATTR_NAME)
+		request.AddSelect(common.ICAT_COLUMN_META_COLL_ATTR_VALUE)
+		request.AddSelect(common.ICAT_COLUMN_META_COLL_ATTR_UNITS)
+		request.AddSelect(common.ICAT_COLUMN_META_COLL_CREATE_TIME)
+		request.AddSelect(common.ICAT_COLUMN_META_COLL_MODIFY_TIME)
 	}
 
 	if err := addScopeConditions(request, query.Scope, entryQueryBranchCollections); err != nil {
@@ -475,30 +476,31 @@ func buildCollectionEntryQueryRequest(conn *connection.IRODSConnection, query me
 func buildDataObjectEntryQueryRequest(conn *connection.IRODSConnection, query metadata.EntryQuery, continueIndex int, includeAVUs bool) (*message.IRODSMessageQueryRequest, error) {
 	request := message.NewIRODSMessageQueryRequest(common.MaxQueryRows, continueIndex, 0, 0)
 	request.AddKeyVal(common.ZONE_KW, conn.GetAccount().ClientZone)
-	request.AddSelect(common.ICAT_COLUMN_COLL_ID, 1)
-	request.AddSelect(common.ICAT_COLUMN_COLL_NAME, 1)
-	request.AddSelect(common.ICAT_COLUMN_D_DATA_ID, 1)
-	request.AddSelect(common.ICAT_COLUMN_DATA_NAME, 1)
-	request.AddSelect(common.ICAT_COLUMN_DATA_SIZE, 1)
-	request.AddSelect(common.ICAT_COLUMN_DATA_TYPE_NAME, 1)
-	request.AddSelect(common.ICAT_COLUMN_DATA_REPL_NUM, 1)
-	request.AddSelect(common.ICAT_COLUMN_D_OWNER_NAME, 1)
-	request.AddSelect(common.ICAT_COLUMN_D_DATA_CHECKSUM, 1)
-	request.AddSelect(common.ICAT_COLUMN_D_REPL_STATUS, 1)
-	request.AddSelect(common.ICAT_COLUMN_D_RESC_NAME, 1)
-	request.AddSelect(common.ICAT_COLUMN_D_DATA_PATH, 1)
-	request.AddSelect(common.ICAT_COLUMN_D_RESC_HIER, 1)
-	request.AddSelect(common.ICAT_COLUMN_D_CREATE_TIME, 1)
-	request.AddSelect(common.ICAT_COLUMN_D_MODIFY_TIME, 1)
+	request.AddSelect(common.ICAT_COLUMN_COLL_ID)
+	request.AddSelect(common.ICAT_COLUMN_COLL_NAME)
+	request.AddSelect(common.ICAT_COLUMN_D_DATA_ID)
+	request.AddSelect(common.ICAT_COLUMN_DATA_NAME)
+	request.AddSelect(common.ICAT_COLUMN_DATA_SIZE)
+	request.AddSelect(common.ICAT_COLUMN_DATA_TYPE_NAME)
+	request.AddSelect(common.ICAT_COLUMN_DATA_REPL_NUM)
+	request.AddSelect(common.ICAT_COLUMN_D_OWNER_NAME)
+	request.AddSelect(common.ICAT_COLUMN_D_DATA_CHECKSUM)
+	request.AddSelect(common.ICAT_COLUMN_D_REPL_STATUS)
+	request.AddSelect(common.ICAT_COLUMN_D_RESC_NAME)
+	request.AddSelect(common.ICAT_COLUMN_D_DATA_PATH)
+	request.AddSelect(common.ICAT_COLUMN_D_RESC_HIER)
+	request.AddSelect(common.ICAT_COLUMN_D_CREATE_TIME)
+	request.AddSelect(common.ICAT_COLUMN_D_MODIFY_TIME)
 	if conn.GetVersion() != nil && conn.GetVersion().HasHigherVersionThan(5, 0, 0) {
-		request.AddSelect(common.ICAT_COLUMN_D_ACCESS_TIME, 1)
+		request.AddSelect(common.ICAT_COLUMN_D_ACCESS_TIME)
 	}
 	if includeAVUs {
-		request.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_NAME, 1)
-		request.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_VALUE, 1)
-		request.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_UNITS, 1)
-		request.AddSelect(common.ICAT_COLUMN_META_DATA_CREATE_TIME, 1)
-		request.AddSelect(common.ICAT_COLUMN_META_DATA_MODIFY_TIME, 1)
+		request.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_ID)
+		request.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_NAME)
+		request.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_VALUE)
+		request.AddSelect(common.ICAT_COLUMN_META_DATA_ATTR_UNITS)
+		request.AddSelect(common.ICAT_COLUMN_META_DATA_CREATE_TIME)
+		request.AddSelect(common.ICAT_COLUMN_META_DATA_MODIFY_TIME)
 	}
 
 	if err := addScopeConditions(request, query.Scope, entryQueryBranchDataObjects); err != nil {
@@ -691,6 +693,12 @@ func parseCollectionQueryRows(queryResult message.IRODSMessageQueryResponse, inc
 					return nil, fmt.Errorf("failed to parse collection modify time %q: %w", value, err)
 				}
 				rows[row].collection.ModifyTime = modifyTime
+			case int(common.ICAT_COLUMN_META_COLL_ATTR_ID):
+				id, err := strconv.ParseInt(value, 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse collection AVU id %q: %w", value, err)
+				}
+				rows[row].avu.ID = id
 			case int(common.ICAT_COLUMN_META_COLL_ATTR_NAME):
 				rows[row].avu.Name = value
 			case int(common.ICAT_COLUMN_META_COLL_ATTR_VALUE):
@@ -833,6 +841,12 @@ func parseDataObjectQueryRows(queryResult message.IRODSMessageQueryResponse, inc
 					return nil, fmt.Errorf("failed to parse data object access time %q: %w", value, err)
 				}
 				rows[row].dataObject.Replicas[0].AccessTime = accessTime
+			case int(common.ICAT_COLUMN_META_DATA_ATTR_ID):
+				id, err := strconv.ParseInt(value, 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse data object AVU id %q: %w", value, err)
+				}
+				rows[row].avu.ID = id
 			case int(common.ICAT_COLUMN_META_DATA_ATTR_NAME):
 				rows[row].avu.Name = value
 			case int(common.ICAT_COLUMN_META_DATA_ATTR_VALUE):

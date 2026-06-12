@@ -3,7 +3,7 @@ module github.com/michael-conway/go-irodsclient-extensions
 go 1.24.9
 
 require (
-	github.com/cyverse/go-irodsclient v0.19.10
+	github.com/cyverse/go-irodsclient v0.20.1-0.20260605235210-f3125ea03517
 	github.com/rs/xid v1.3.0
 )
 

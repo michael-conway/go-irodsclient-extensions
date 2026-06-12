@@ -273,6 +273,9 @@ func assertMatchedAVUPresent(t *testing.T, matched map[string][]metadata.AVUStat
 	t.Helper()
 	for _, avu := range matched[entryPath] {
 		if avu.Name == name && avu.Value == value && avu.Units == unit {
+			if avu.ID <= 0 {
+				t.Fatalf("expected matched AVU ID to be populated for %s=%s[%s], got %+v", name, value, unit, avu)
+			}
 			return
 		}
 	}
