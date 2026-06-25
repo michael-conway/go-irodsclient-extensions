@@ -28,18 +28,31 @@ type Catalog interface {
 	SearchPrincipals(ctx context.Context, options PrincipalSearchOptions) ([]PrincipalSearchResult, error)
 }
 
-// Service exposes list-scale user and group read helpers.
+// Mutator is the narrow user/group mutation API required by Service.
+type Mutator interface {
+	CreateRodsUserWithPassword(ctx context.Context, request CreateRodsUserWithPasswordRequest) (User, error)
+	CreateGroup(ctx context.Context, request GroupRequest) (GroupRef, error)
+	AddGroupMember(ctx context.Context, request GroupMemberRequest) error
+	RemoveGroupMember(ctx context.Context, request GroupMemberRequest) error
+}
+
+// Service exposes list-scale user and group helpers.
 type Service struct {
 	catalog Catalog
+	mutator Mutator
 	zone    string
 }
 
-// NewService returns a user and group query service.
+// NewService returns a user and group service.
 func NewService(catalog Catalog, defaultZone string) *Service {
-	return &Service{
+	service := &Service{
 		catalog: catalog,
 		zone:    strings.TrimSpace(defaultZone),
 	}
+	if mutator, ok := catalog.(Mutator); ok {
+		service.mutator = mutator
+	}
+	return service
 }
 
 type PrincipalKind string
@@ -92,6 +105,13 @@ type UserMembershipSummary struct {
 }
 
 type GroupRef struct {
+	ID   int64
+	Name string
+	Zone string
+	Type irodstypes.IRODSUserType
+}
+
+type User struct {
 	ID   int64
 	Name string
 	Zone string
@@ -177,8 +197,99 @@ func (service *Service) SearchPrincipals(ctx context.Context, options PrincipalS
 	return service.catalog.SearchPrincipals(ctx, normalized)
 }
 
+type CreateRodsUserWithPasswordRequest struct {
+	Zone     string
+	Name     string
+	Password string
+}
+
+type GroupRequest struct {
+	Zone string
+	Name string
+}
+
+type GroupMemberRequest struct {
+	Zone      string
+	GroupName string
+	UserName  string
+}
+
+func (service *Service) CreateRodsUserWithPassword(ctx context.Context, request CreateRodsUserWithPasswordRequest) (User, error) {
+	if err := service.validateMutation(ctx); err != nil {
+		return User{}, err
+	}
+
+	username := strings.TrimSpace(request.Name)
+	if username == "" {
+		return User{}, fmt.Errorf("%w: user name is required", ErrInvalidRequest)
+	}
+	if strings.TrimSpace(request.Password) == "" {
+		return User{}, fmt.Errorf("%w: password is required", ErrInvalidRequest)
+	}
+
+	return service.mutator.CreateRodsUserWithPassword(ctx, CreateRodsUserWithPasswordRequest{
+		Zone:     service.zoneFor(request.Zone),
+		Name:     username,
+		Password: request.Password,
+	})
+}
+
+func (service *Service) CreateGroup(ctx context.Context, request GroupRequest) (GroupRef, error) {
+	if err := service.validateMutation(ctx); err != nil {
+		return GroupRef{}, err
+	}
+	groupName := strings.TrimSpace(request.Name)
+	if groupName == "" {
+		return GroupRef{}, fmt.Errorf("%w: group name is required", ErrInvalidRequest)
+	}
+	return service.mutator.CreateGroup(ctx, GroupRequest{
+		Zone: service.zoneFor(request.Zone),
+		Name: groupName,
+	})
+}
+
+func (service *Service) AddGroupMember(ctx context.Context, request GroupMemberRequest) error {
+	if err := service.validateMutation(ctx); err != nil {
+		return err
+	}
+	return service.groupMemberMutation(ctx, request, service.mutator.AddGroupMember)
+}
+
+func (service *Service) RemoveGroupMember(ctx context.Context, request GroupMemberRequest) error {
+	if err := service.validateMutation(ctx); err != nil {
+		return err
+	}
+	return service.groupMemberMutation(ctx, request, service.mutator.RemoveGroupMember)
+}
+
+func (service *Service) groupMemberMutation(ctx context.Context, request GroupMemberRequest, mutate func(context.Context, GroupMemberRequest) error) error {
+	groupName := strings.TrimSpace(request.GroupName)
+	if groupName == "" {
+		return fmt.Errorf("%w: group name is required", ErrInvalidRequest)
+	}
+	username := strings.TrimSpace(request.UserName)
+	if username == "" {
+		return fmt.Errorf("%w: user name is required", ErrInvalidRequest)
+	}
+	return mutate(ctx, GroupMemberRequest{
+		Zone:      service.zoneFor(request.Zone),
+		GroupName: groupName,
+		UserName:  username,
+	})
+}
+
 func (service *Service) validate(ctx context.Context) error {
 	if service == nil || service.catalog == nil {
+		return ErrMissingCatalog
+	}
+	if ctx == nil {
+		return context.Canceled
+	}
+	return ctx.Err()
+}
+
+func (service *Service) validateMutation(ctx context.Context) error {
+	if service == nil || service.mutator == nil {
 		return ErrMissingCatalog
 	}
 	if ctx == nil {

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	cyfs "github.com/cyverse/go-irodsclient/fs"
+	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/michael-conway/go-irodsclient-extensions/internal/testutil"
 	"github.com/michael-conway/go-irodsclient-extensions/usersandgroups"
 	usersandgroupsirodsfs "github.com/michael-conway/go-irodsclient-extensions/usersandgroups/irodsfs"
@@ -114,6 +116,121 @@ func TestUsersAndGroupsLiveIntegration(t *testing.T) {
 	}
 }
 
+func TestGroupAdminCreateRodsUserWithPasswordLiveIntegration(t *testing.T) {
+	cfg := testutil.RequireIntegrationConfig(t)
+	primaryUser := testutil.IntegrationPrimaryTestUser(t)
+	primaryPassword := testutil.IntegrationPrimaryTestPassword(t)
+
+	adminFS := testutil.NewIntegrationAdminFilesystem(t)
+	defer adminFS.Release()
+
+	originalPrimary, err := adminFS.GetUser(primaryUser, cfg.IrodsZone, "")
+	if err != nil {
+		t.Fatalf("get primary test user %q: %v", primaryUser, err)
+	}
+	originalPrimaryType := originalPrimary.Type
+	if originalPrimaryType != irodstypes.IRODSUserGroupAdmin {
+		if err := adminFS.ChangeUserType(primaryUser, cfg.IrodsZone, irodstypes.IRODSUserGroupAdmin); err != nil {
+			t.Fatalf("promote primary test user %q to groupadmin: %v", primaryUser, err)
+		}
+		t.Cleanup(func() {
+			restoreFS := testutil.NewIntegrationAdminFilesystem(t)
+			defer restoreFS.Release()
+			if err := restoreFS.ChangeUserType(primaryUser, cfg.IrodsZone, originalPrimaryType); err != nil {
+				t.Errorf("restore primary test user %q to %q: %v", primaryUser, originalPrimaryType, err)
+			}
+		})
+	}
+
+	testUserName := "it-uag-mkuser-" + xid.New().String()
+	testUserPassword := "it-uag-password-" + xid.New().String()
+	testGroupName := "it-uag-mkgroup-" + xid.New().String()
+	t.Cleanup(func() {
+		cleanupFS := testutil.NewIntegrationAdminFilesystem(t)
+		defer cleanupFS.Release()
+		_ = cleanupFS.RemoveGroupMember(testGroupName, testUserName, cfg.IrodsZone)
+		_ = cleanupFS.RemoveGroupMember(testGroupName, primaryUser, cfg.IrodsZone)
+		_ = cleanupFS.RemoveUser(testGroupName, cfg.IrodsZone, irodstypes.IRODSUserRodsGroup)
+		_ = cleanupFS.RemoveUser(testUserName, cfg.IrodsZone, irodstypes.IRODSUserRodsUser)
+	})
+	_ = adminFS.RemoveUser(testUserName, cfg.IrodsZone, irodstypes.IRODSUserRodsUser)
+	_ = adminFS.RemoveUser(testGroupName, cfg.IrodsZone, irodstypes.IRODSUserRodsGroup)
+
+	groupAdminFS := newUsersAndGroupsIntegrationFilesystem(t, cfg, primaryUser, primaryPassword, "go-irodsclient-extensions-usersandgroups-groupadmin")
+	defer groupAdminFS.Release()
+
+	service := usersandgroups.NewService(usersandgroupsirodsfs.NewAdapter(groupAdminFS), cfg.IrodsZone)
+	created, err := service.CreateRodsUserWithPassword(context.Background(), usersandgroups.CreateRodsUserWithPasswordRequest{
+		Name:     testUserName,
+		Password: testUserPassword,
+	})
+	if err != nil {
+		t.Fatalf("groupadmin CreateRodsUserWithPassword returned error: %v", err)
+	}
+	if created.Name != testUserName || created.Zone != cfg.IrodsZone || created.Type != irodstypes.IRODSUserRodsUser {
+		t.Fatalf("unexpected created user: %+v", created)
+	}
+
+	createdUserFS := newUsersAndGroupsIntegrationFilesystem(t, cfg, testUserName, testUserPassword, "go-irodsclient-extensions-usersandgroups-created-user")
+	defer createdUserFS.Release()
+	if got, err := createdUserFS.GetUser(testUserName, cfg.IrodsZone, ""); err != nil {
+		t.Fatalf("created user %q could not authenticate with initial password: %v", testUserName, err)
+	} else if got.Type != irodstypes.IRODSUserRodsUser {
+		t.Fatalf("expected authenticated created user type rodsuser, got %+v", got)
+	}
+
+	createdGroup, err := service.CreateGroup(context.Background(), usersandgroups.GroupRequest{
+		Name: testGroupName,
+	})
+	if err != nil {
+		t.Fatalf("groupadmin CreateGroup returned error: %v", err)
+	}
+	if createdGroup.Name != testGroupName || createdGroup.Type != irodstypes.IRODSUserRodsGroup {
+		t.Fatalf("unexpected created group: %+v", createdGroup)
+	}
+
+	if err := service.AddGroupMember(context.Background(), usersandgroups.GroupMemberRequest{
+		GroupName: testGroupName,
+		UserName:  primaryUser,
+	}); err != nil {
+		t.Fatalf("groupadmin AddGroupMember self returned error: %v", err)
+	}
+
+	if err := service.AddGroupMember(context.Background(), usersandgroups.GroupMemberRequest{
+		GroupName: testGroupName,
+		UserName:  testUserName,
+	}); err != nil {
+		t.Fatalf("groupadmin AddGroupMember returned error: %v", err)
+	}
+	members := eventuallyUsersAndGroups(t, func() ([]*irodstypes.IRODSUser, error) {
+		verifyFS := testutil.NewIntegrationAdminFilesystem(t)
+		defer verifyFS.Release()
+		return verifyFS.ListGroupMembers(cfg.IrodsZone, testGroupName)
+	}, func(members []*irodstypes.IRODSUser) bool {
+		return liveMembersContain(members, testUserName)
+	})
+	if !liveMembersContain(members, testUserName) {
+		t.Fatalf("expected group %q to contain user %q, got %+v", testGroupName, testUserName, members)
+	}
+
+	if err := service.RemoveGroupMember(context.Background(), usersandgroups.GroupMemberRequest{
+		GroupName: testGroupName,
+		UserName:  testUserName,
+	}); err != nil {
+		t.Fatalf("groupadmin RemoveGroupMember returned error: %v", err)
+	}
+	members = eventuallyUsersAndGroups(t, func() ([]*irodstypes.IRODSUser, error) {
+		verifyFS := testutil.NewIntegrationAdminFilesystem(t)
+		defer verifyFS.Release()
+		return verifyFS.ListGroupMembers(cfg.IrodsZone, testGroupName)
+	}, func(members []*irodstypes.IRODSUser) bool {
+		return !liveMembersContain(members, testUserName)
+	})
+	if liveMembersContain(members, testUserName) {
+		t.Fatalf("expected group %q not to contain user %q after remove, got %+v", testGroupName, testUserName, members)
+	}
+}
+
 func addMemberLive(t testing.TB, adapter *usersyncirodsfs.Adapter, groupName string, username string, zone string) {
 	t.Helper()
 	if err := adapter.AddGroupMember(groupName, username, zone); err != nil {
@@ -191,4 +308,36 @@ func containsAllNames(actual []string, expected ...string) bool {
 		}
 	}
 	return true
+}
+
+func liveMembersContain(members []*irodstypes.IRODSUser, username string) bool {
+	for _, member := range members {
+		if member != nil && member.Name == username {
+			return true
+		}
+	}
+	return false
+}
+
+func newUsersAndGroupsIntegrationFilesystem(t testing.TB, cfg *testutil.ExtensionsTestConfig, username string, password string, applicationName string) *cyfs.FileSystem {
+	t.Helper()
+
+	account, err := irodstypes.CreateIRODSAccount(
+		cfg.IrodsHost,
+		cfg.IrodsPort,
+		username,
+		cfg.IrodsZone,
+		irodstypes.GetAuthScheme(cfg.IrodsAuthScheme),
+		password,
+		cfg.IrodsDefaultResource,
+	)
+	if err != nil {
+		t.Fatalf("create iRODS account for %q: %v", username, err)
+	}
+
+	filesystem, err := cyfs.NewFileSystemWithDefault(account, applicationName)
+	if err != nil {
+		t.Fatalf("connect to iRODS as %q: %v", username, err)
+	}
+	return filesystem
 }

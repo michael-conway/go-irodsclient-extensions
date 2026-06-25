@@ -12,6 +12,7 @@ import (
 	"github.com/cyverse/go-irodsclient/irods/connection"
 	"github.com/cyverse/go-irodsclient/irods/message"
 	irodstypes "github.com/cyverse/go-irodsclient/irods/types"
+	"github.com/cyverse/go-irodsclient/irods/util"
 	"github.com/michael-conway/go-irodsclient-extensions/usersandgroups"
 )
 
@@ -20,6 +21,7 @@ type Adapter struct {
 }
 
 var _ usersandgroups.Catalog = (*Adapter)(nil)
+var _ usersandgroups.Mutator = (*Adapter)(nil)
 
 func NewAdapter(filesystem *cyfs.FileSystem) *Adapter {
 	return &Adapter{filesystem: filesystem}
@@ -63,14 +65,10 @@ func (adapter *Adapter) ListUserMembershipSummaries(ctx context.Context, options
 		return nil, err
 	}
 
-	userType := options.Type
-	if userType == "" {
-		userType = irodstypes.IRODSUserRodsUser
-	}
 	users, err := adapter.listPrincipals(ctx, principalQueryOptions{
 		Zone:        options.Zone,
 		Prefix:      options.Prefix,
-		Type:        userType,
+		Type:        options.Type,
 		ExcludeType: irodstypes.IRODSUserRodsGroup,
 		Limit:       options.Limit,
 	})
@@ -186,6 +184,111 @@ func (adapter *Adapter) SearchPrincipals(ctx context.Context, options usersandgr
 		results = results[:options.Limit]
 	}
 	return results, nil
+}
+
+func (adapter *Adapter) CreateRodsUserWithPassword(ctx context.Context, request usersandgroups.CreateRodsUserWithPasswordRequest) (usersandgroups.User, error) {
+	if err := ctx.Err(); err != nil {
+		return usersandgroups.User{}, err
+	}
+	if adapter == nil || adapter.filesystem == nil {
+		return usersandgroups.User{}, usersandgroups.ErrMissingCatalog
+	}
+
+	conn, err := adapter.filesystem.GetMetadataConnection(true)
+	if err != nil {
+		return usersandgroups.User{}, err
+	}
+	defer adapter.filesystem.ReturnMetadataConnection(conn) //nolint:errcheck
+
+	if err := createRodsUserWithPassword(conn, request.Name, request.Zone, request.Password); err != nil {
+		return usersandgroups.User{}, err
+	}
+
+	user, err := adapter.filesystem.GetUser(request.Name, request.Zone, irodstypes.IRODSUserRodsUser)
+	if err != nil {
+		return usersandgroups.User{}, err
+	}
+
+	return usersandgroups.User{
+		ID:   user.ID,
+		Name: user.Name,
+		Zone: user.Zone,
+		Type: user.Type,
+	}, nil
+}
+
+func (adapter *Adapter) CreateGroup(ctx context.Context, request usersandgroups.GroupRequest) (usersandgroups.GroupRef, error) {
+	if err := ctx.Err(); err != nil {
+		return usersandgroups.GroupRef{}, err
+	}
+	if adapter == nil || adapter.filesystem == nil {
+		return usersandgroups.GroupRef{}, usersandgroups.ErrMissingCatalog
+	}
+
+	if err := adapter.userAdminRequest("mkgroup", request.Name, string(irodstypes.IRODSUserRodsGroup), request.Zone, "", "", "", ""); err != nil {
+		return usersandgroups.GroupRef{}, fmt.Errorf("received user-admin mkgroup error for group %q, zone %q: %w", request.Name, request.Zone, err)
+	}
+
+	group, err := adapter.filesystem.GetUser(request.Name, request.Zone, irodstypes.IRODSUserRodsGroup)
+	if err != nil {
+		return usersandgroups.GroupRef{}, err
+	}
+	return usersandgroups.GroupRef{
+		ID:   group.ID,
+		Name: group.Name,
+		Zone: group.Zone,
+		Type: group.Type,
+	}, nil
+}
+
+func (adapter *Adapter) AddGroupMember(ctx context.Context, request usersandgroups.GroupMemberRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return adapter.userAdminRequest("modify", "group", request.GroupName, "add", request.UserName, request.Zone, "", "")
+}
+
+func (adapter *Adapter) RemoveGroupMember(ctx context.Context, request usersandgroups.GroupMemberRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return adapter.userAdminRequest("modify", "group", request.GroupName, "remove", request.UserName, request.Zone, "", "")
+}
+
+func createRodsUserWithPassword(conn *connection.IRODSConnection, username string, zone string, password string) error {
+	conn.Lock()
+	defer conn.Unlock()
+
+	account := conn.GetAccount()
+	oldPassword := account.Password
+	if account.AuthenticationScheme.IsPAM() {
+		oldPassword = conn.GetPAMToken()
+	}
+	scrambledPassword := util.Scramble(util.GetPasswordPadded(password), oldPassword, "", false)
+
+	req := message.NewIRODSMessageUserAdminRequest("mkuser", username, scrambledPassword, zone, "", "", "", "")
+	if err := conn.RequestAndCheck(req, &message.IRODSMessageAdminResponse{}, nil, conn.GetOperationTimeout()); err != nil {
+		return fmt.Errorf("received user-admin mkuser error for user %q, zone %q: %w", username, zone, err)
+	}
+	return nil
+}
+
+func (adapter *Adapter) userAdminRequest(action string, args ...string) error {
+	if adapter == nil || adapter.filesystem == nil {
+		return usersandgroups.ErrMissingCatalog
+	}
+
+	conn, err := adapter.filesystem.GetMetadataConnection(true)
+	if err != nil {
+		return err
+	}
+	defer adapter.filesystem.ReturnMetadataConnection(conn) //nolint:errcheck
+
+	conn.Lock()
+	defer conn.Unlock()
+
+	req := message.NewIRODSMessageUserAdminRequest(action, args...)
+	return conn.RequestAndCheck(req, &message.IRODSMessageAdminResponse{}, nil, conn.GetOperationTimeout())
 }
 
 type principalQueryOptions struct {

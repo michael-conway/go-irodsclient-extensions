@@ -32,6 +32,7 @@ Use packages like:
 - `userpersist/`, `favorites/`, and `filecart/` for user-scoped persisted state
 - `s3admin/` for iRODS S3 API bucket and user secret mapping workflows
 - `usersync/` for desired-state user and group reconciliation
+- `usersandgroups/` for list-scale user/group queries and shared igroupadmin-compatible user/group workflows
 - `oidcverify/` and `irodsauth/` for shared auth plumbing used by service layers
 
 Do not turn this repository into a single generic helpers package.
@@ -45,6 +46,14 @@ Keep the split this way:
 - client repositories such as `irods-go-rest` and `irods-go-drs` own HTTP mapping, route behavior, and service-specific policy
 
 If a feature needs new filesystem primitives, add them to `go-irodsclient` first or record the gap clearly.
+
+Current recorded `go-irodsclient` gap:
+
+- `fs.CreateUser` uses the general-admin user create path, which is appropriate
+  for rodsadmin administration but does not model `igroupadmin mkuser Name
+  Password [Zone]`. Until go-irodsclient exposes that primitive directly,
+  `usersandgroups/irodsfs` owns a narrow `USER_ADMIN_AN` implementation for
+  groupadmin-compatible `rodsuser` creation with an initial password.
 
 ## Testing
 
